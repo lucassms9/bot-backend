@@ -128,6 +128,10 @@ export class ApiController {
             profitPercentage: ((bet.odd_total - 1) * 100).toFixed(2),
           },
 
+          // Valores de aposta
+          suggestedStake: bet.suggested_stake,
+          stake: bet.stake,
+
           // Jogo 1
           game1: {
             id: game1.id,

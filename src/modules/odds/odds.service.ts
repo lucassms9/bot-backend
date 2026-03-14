@@ -4,6 +4,7 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { Logger } from '../../utils/logger';
 import { OddsApiResponse } from './interfaces/odds-api.interface';
+import { SUPPORTED_LEAGUES } from './constants/leagues.constants';
 import * as mockData from './mocks/odds-mock-data.json';
 
 @Injectable()
@@ -24,7 +25,7 @@ export class OddsService {
   }
 
   /**
-   * Fetch odds from The Odds API (or mock data)
+   * Fetch odds from The Odds API for all supported leagues (or mock data)
    */
   async fetchOdds(): Promise<OddsApiResponse[]> {
     // 🧪 MODO MOCK - Não gasta requisições da API
@@ -33,12 +34,64 @@ export class OddsService {
       return (mockData as any).default || mockData;
     }
 
-    // 🌐 MODO REAL - Chama The Odds API
-    const sportKey = this.configService.get<string>('SPORT_KEY', 'soccer_brazil_campeonato');
+    // 🌐 MODO REAL - Chama The Odds API para todas as 16 ligas
+    this.logger.log(`🌍 Fetching odds from ${SUPPORTED_LEAGUES.length} leagues`, 'OddsService');
+
     const regions = this.configService.get<string>('REGIONS', 'eu');
     const markets = this.configService.get<string>('MARKET', 'spreads');
     const oddsFormat = this.configService.get<string>('ODDS_FORMAT', 'decimal');
 
+    try {
+      // Buscar dados de todas as ligas em paralelo
+      const results = await Promise.allSettled(
+        SUPPORTED_LEAGUES.map((league) =>
+          this.fetchLeagueOdds(league, regions, markets, oddsFormat),
+        ),
+      );
+
+      // Processar resultados
+      const allEvents: OddsApiResponse[] = [];
+      let successCount = 0;
+      let errorCount = 0;
+
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          allEvents.push(...result.value);
+          successCount++;
+          this.logger.debug(
+            `✓ ${SUPPORTED_LEAGUES[index]}: ${result.value.length} events`,
+            'OddsService',
+          );
+        } else {
+          errorCount++;
+          this.logger.logWarning(
+            'OddsService',
+            `✗ ${SUPPORTED_LEAGUES[index]}: ${result.reason.message}`,
+          );
+        }
+      });
+
+      this.logger.logSuccess(
+        'OddsService',
+        `Fetched ${allEvents.length} events from ${successCount}/${SUPPORTED_LEAGUES.length} leagues (${errorCount} errors)`,
+      );
+
+      return allEvents;
+    } catch (error: any) {
+      this.logger.logError('OddsService', 'Critical error fetching odds', error);
+      throw new HttpException('Failed to fetch odds from API', HttpStatus.SERVICE_UNAVAILABLE);
+    }
+  }
+
+  /**
+   * Fetch odds for a single league
+   */
+  private async fetchLeagueOdds(
+    sportKey: string,
+    regions: string,
+    markets: string,
+    oddsFormat: string,
+  ): Promise<OddsApiResponse[]> {
     const url = `${this.baseUrl}/sports/${sportKey}/odds`;
 
     const params = {
@@ -48,45 +101,9 @@ export class OddsService {
       oddsFormat,
     };
 
-    this.logger.logAPI('OddsService', 'GET', url);
-    this.logger.debug(`Params: ${JSON.stringify(params)}`, 'OddsService');
+    const response = await firstValueFrom(this.httpService.get<OddsApiResponse[]>(url, { params }));
 
-    try {
-      const response = await firstValueFrom(
-        this.httpService.get<OddsApiResponse[]>(url, { params }),
-      );
-
-      this.logger.logSuccess(
-        'OddsService',
-        `Fetched ${response.data.length} events from The Odds API`,
-      );
-
-      return response.data;
-    } catch (error: any) {
-      this.logger.logError('OddsService', 'Error fetching odds from API', error);
-
-      if (error.response) {
-        // API returned error response
-        const status = error.response.status;
-        const message = error.response.data?.message || error.message;
-
-        if (status === 401) {
-          throw new HttpException('Invalid API key for The Odds API', HttpStatus.UNAUTHORIZED);
-        }
-
-        if (status === 429) {
-          throw new HttpException(
-            'Rate limit exceeded for The Odds API',
-            HttpStatus.TOO_MANY_REQUESTS,
-          );
-        }
-
-        throw new HttpException(`The Odds API error: ${message}`, status);
-      }
-
-      // Network or other error
-      throw new HttpException('Failed to connect to The Odds API', HttpStatus.SERVICE_UNAVAILABLE);
-    }
+    return response.data;
   }
 
   /**
@@ -97,7 +114,8 @@ export class OddsService {
     requestsUsed: number;
   }> {
     try {
-      const sportKey = this.configService.get<string>('SPORT_KEY', 'soccer_brazil_campeonato');
+      // Use a primeira liga como exemplo para obter informações de uso da API
+      const sportKey = SUPPORTED_LEAGUES[0];
       const url = `${this.baseUrl}/sports/${sportKey}/odds`;
 
       const response = await firstValueFrom(

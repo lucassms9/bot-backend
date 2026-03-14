@@ -42,9 +42,6 @@ class EnvironmentVariables {
   MIN_PAIR_ODD: number;
 
   @IsString()
-  SPORT_KEY: string;
-
-  @IsString()
   MARKET: string;
 
   @IsString()

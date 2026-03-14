@@ -52,10 +52,9 @@ MAX_ODD=1.55
 MIN_PAIR_ODD=1.60
 
 # Scheduler
-CRON_ODDS_PROCESSOR=*/30 * * * *
+CRON_ODDS_PROCESSOR=0 12 * * *
 
-# The Odds API Settings
-SPORT_KEY=soccer_brazil_campeonato
+# The Odds API Settings (16 ligas internacionais são buscadas automaticamente)
 MARKET=spreads
 REGIONS=eu
 ODDS_FORMAT=decimal
@@ -145,27 +144,30 @@ curl http://localhost:3000/odds/usage
 
 ## ⏰ Scheduler Automático
 
-O sistema roda automaticamente a cada **30 minutos**.
+O sistema roda automaticamente **1 vez por dia ao meio-dia (12:00)**.
 
 **Fluxo automático:**
-1. Busca odds da API
+1. Busca odds de 16 ligas internacionais
 2. Filtra handicaps válidos
 3. Calcula risk score
 4. Salva oportunidades
 5. Monta duplas
 6. Salva apostas
 
-Para alterar o intervalo, edite `CRON_ODDS_PROCESSOR` no `.env`:
+Para alterar o horário ou frequência, edite `CRON_ODDS_PROCESSOR` no `.env`:
 
 ```env
-# A cada 30 minutos
-CRON_ODDS_PROCESSOR=*/30 * * * *
+# 1x por dia ao meio-dia (padrão)
+CRON_ODDS_PROCESSOR=0 12 * * *
 
-# A cada hora
-CRON_ODDS_PROCESSOR=0 * * * *
+# 1x por dia às 9h da manhã
+CRON_ODDS_PROCESSOR=0 9 * * *
 
-# Horários específicos (10h, 15h, 20h)
-CRON_ODDS_PROCESSOR=0 10,15,20 * * *
+# 2x por dia (9h e 21h)
+CRON_ODDS_PROCESSOR=0 9,21 * * *
+
+# A cada 6 horas
+CRON_ODDS_PROCESSOR=0 */6 * * *
 ```
 
 ---
@@ -239,12 +241,13 @@ LIMIT 5;
 ### API retorna 429 (Rate Limit)
 - Você excedeu o limite de requisições
 - Free tier: 500 requests/mês
-- Reduza a frequência do cron
+- Com 16 ligas, cada execução usa 16 requests
+- Rodando 1x/dia = ~480 requests/mês (dentro do limite gratuito)
 
 ### Nenhuma oportunidade encontrada
 - Pode não haver jogos no momento
 - Verifique se os filtros não estão muito restritivos
-- Teste com outros mercados (ajustar `SPORT_KEY`)
+- O sistema busca automaticamente 16 ligas internacionais
 
 ### Erro de conexão com Supabase
 - Verifique `SUPABASE_URL` e `SUPABASE_KEY` no `.env`
@@ -269,7 +272,7 @@ Após confirmar que tudo está funcionando:
 2. **Ajustar estratégia**
    - Testar diferentes ranges de odds
    - Modificar pesos do risk score
-   - Adicionar mais ligas
+   - Ajustar filtros de ligas se necessário (16 ligas ativas)
 
 3. **Melhorias**
    - Dashboard web
