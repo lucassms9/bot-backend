@@ -179,7 +179,7 @@ export class ApiController {
 
     // Remover nulls e ordenar por data (mais recentes primeiro)
     const valid = enriched
-      .filter((bet) => bet !== null && bet.createdAt !== undefined)
+      .filter((bet): bet is NonNullable<typeof bet> => bet !== null && bet.createdAt !== undefined)
       .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
 
     return {
@@ -197,7 +197,7 @@ export class ApiController {
   @Get('bets/:id')
   async getBetDetails(@Param('id') id: string) {
     const bets = await this.getBets();
-    const bet = bets.bets.find((b) => b.id === id);
+    const bet = bets.bets.find((b) => b?.id === id);
 
     if (!bet) {
       return {
@@ -248,15 +248,15 @@ export class ApiController {
       (o) => o.status === 'pending',
     ).length;
 
-    const pendingBets = bets.bets.filter((b) => b.status === 'pending').length;
-    const wonBets = bets.bets.filter((b) => b.status === 'won').length;
-    const lostBets = bets.bets.filter((b) => b.status === 'lost').length;
+    const pendingBets = bets.bets.filter((b) => b?.status === 'pending').length;
+    const wonBets = bets.bets.filter((b) => b?.status === 'won').length;
+    const lostBets = bets.bets.filter((b) => b?.status === 'lost').length;
 
-    const totalProfit = bets.bets.reduce((sum, bet) => sum + (bet.result.profit || 0), 0);
+    const totalProfit = bets.bets.reduce((sum, bet) => sum + (bet?.result?.profit || 0), 0);
 
     const avgOdd =
       bets.bets.length > 0
-        ? bets.bets.reduce((sum, bet) => sum + bet.summary.oddTotal, 0) / bets.bets.length
+        ? bets.bets.reduce((sum, bet) => sum + (bet?.summary?.oddTotal || 0), 0) / bets.bets.length
         : 0;
 
     const avgRisk =
