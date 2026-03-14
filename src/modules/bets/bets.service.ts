@@ -15,75 +15,80 @@ export class BetsService {
   ) {}
 
   /**
-   * Create a single bet
+   * Create a single bet for a specific user
    */
-  async create(betDto: CreateBetDto): Promise<Bet> {
-    this.logger.logProcessing('BetsService', 'Creating bet');
+  async create(userId: string, betDto: CreateBetDto): Promise<Bet> {
+    this.logger.logProcessing('BetsService', `Creating bet for user ${userId}`);
 
     // Add suggested stake (10% of bankroll)
-    const suggestedStake = await this.bankrollService.getSuggestedStake();
+    const suggestedStake = await this.bankrollService.getSuggestedStake(userId);
     const betWithStake = {
       ...betDto,
       suggested_stake: suggestedStake,
     };
 
-    return this.betsRepository.create(betWithStake);
+    return this.betsRepository.create(userId, betWithStake);
   }
 
   /**
-   * Create multiple bets
+   * Create multiple bets for a specific user
    */
-  async createMany(bets: CreateBetDto[]): Promise<Bet[]> {
+  async createMany(userId: string, bets: CreateBetDto[]): Promise<Bet[]> {
     if (bets.length === 0) {
       this.logger.logWarning('BetsService', 'No bets to create');
       return [];
     }
 
-    this.logger.logProcessing('BetsService', `Creating ${bets.length} bets`);
+    this.logger.logProcessing('BetsService', `Creating ${bets.length} bets for user ${userId}`);
 
     // Add suggested stake to all bets
-    const suggestedStake = await this.bankrollService.getSuggestedStake();
+    const suggestedStake = await this.bankrollService.getSuggestedStake(userId);
     const betsWithStake = bets.map((bet) => ({
       ...bet,
       suggested_stake: suggestedStake,
     }));
 
-    return this.betsRepository.createMany(betsWithStake);
+    return this.betsRepository.createMany(userId, betsWithStake);
   }
 
   /**
-   * Get all bets
+   * Get all bets for a specific user
    */
-  async findAll(): Promise<Bet[]> {
-    return this.betsRepository.findAll();
+  async findAll(userId: string): Promise<Bet[]> {
+    return this.betsRepository.findAll(userId);
   }
 
   /**
-   * Get bets by result
+   * Get bets by result for a specific user
    */
-  async findByResult(result: BetResult): Promise<Bet[]> {
-    return this.betsRepository.findByResult(result);
+  async findByResult(userId: string, result: BetResult): Promise<Bet[]> {
+    return this.betsRepository.findByResult(userId, result);
   }
 
   /**
-   * Get pending bets
+   * Get pending bets for a specific user
    */
-  async getPendingBets(): Promise<Bet[]> {
-    return this.findByResult(BetResult.PENDING);
+  async getPendingBets(userId: string): Promise<Bet[]> {
+    return this.findByResult(userId, BetResult.PENDING);
   }
 
   /**
-   * Update bet result
+   * Update bet result for a specific user
    */
-  async updateResult(id: string, result: BetResult, profit?: number): Promise<void> {
-    this.logger.logProcessing('BetsService', `Updating bet result to ${result}`);
-    await this.betsRepository.updateResult(id, result, profit);
+  async updateResult(
+    userId: string,
+    id: string,
+    result: BetResult,
+    profit?: number,
+  ): Promise<void> {
+    this.logger.logProcessing('BetsService', `Updating bet result to ${result} for user ${userId}`);
+    await this.betsRepository.updateResult(userId, id, result, profit);
   }
 
   /**
-   * Get statistics
+   * Get statistics for a specific user
    */
-  async getStatistics(): Promise<{
+  async getStatistics(userId: string): Promise<{
     total: number;
     pending: number;
     won: number;
@@ -92,12 +97,12 @@ export class BetsService {
     totalProfit: number;
   }> {
     const [total, pending, won, lost, partial, totalProfit] = await Promise.all([
-      this.betsRepository.findAll(),
-      this.betsRepository.countByResult(BetResult.PENDING),
-      this.betsRepository.countByResult(BetResult.WON),
-      this.betsRepository.countByResult(BetResult.LOST),
-      this.betsRepository.countByResult(BetResult.PARTIAL),
-      this.betsRepository.getTotalProfit(),
+      this.betsRepository.findAll(userId),
+      this.betsRepository.countByResult(userId, BetResult.PENDING),
+      this.betsRepository.countByResult(userId, BetResult.WON),
+      this.betsRepository.countByResult(userId, BetResult.LOST),
+      this.betsRepository.countByResult(userId, BetResult.PARTIAL),
+      this.betsRepository.getTotalProfit(userId),
     ]);
 
     return {

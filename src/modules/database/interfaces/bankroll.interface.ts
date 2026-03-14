@@ -1,5 +1,6 @@
 export interface Bankroll {
   id: string;
+  user_id: string;
   current_balance: number;
   initial_balance: number;
   currency: string;

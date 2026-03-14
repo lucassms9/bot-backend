@@ -78,6 +78,7 @@ COMMENT ON COLUMN opportunities.status IS 'Status: pending, paired, discarded';
 -- ================================================
 CREATE TABLE bets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
     game1_id UUID NOT NULL REFERENCES opportunities(id) ON DELETE RESTRICT,
     game2_id UUID NOT NULL REFERENCES opportunities(id) ON DELETE RESTRICT,
     odd_total DECIMAL(5,2) NOT NULL,
@@ -89,7 +90,8 @@ CREATE TABLE bets (
     -- Constraints
     CONSTRAINT chk_different_games CHECK (game1_id != game2_id),
     CONSTRAINT chk_odd_total_positive CHECK (odd_total >= 1.0),
-    CONSTRAINT chk_result_valid CHECK (result IN ('pending', 'won', 'lost', 'partial'))
+    CONSTRAINT chk_result_valid CHECK (result IN ('pending', 'won', 'lost', 'partial')),
+    CONSTRAINT fk_bets_user FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
 );
 
 -- Índices para performance
@@ -97,9 +99,11 @@ CREATE INDEX idx_bets_game1_id ON bets(game1_id);
 CREATE INDEX idx_bets_game2_id ON bets(game2_id);
 CREATE INDEX idx_bets_created_at ON bets(created_at);
 CREATE INDEX idx_bets_result ON bets(result);
+CREATE INDEX idx_bets_user_id ON bets(user_id);
 
 -- Comentários
 COMMENT ON TABLE bets IS 'Duplas de apostas combinadas';
+COMMENT ON COLUMN bets.user_id IS 'ID do usuário dono da aposta';
 COMMENT ON COLUMN bets.game1_id IS 'Referência à primeira aposta da dupla';
 COMMENT ON COLUMN bets.game2_id IS 'Referência à segunda aposta da dupla';
 COMMENT ON COLUMN bets.odd_total IS 'Odd total da dupla (multiplicação)';
@@ -113,6 +117,7 @@ COMMENT ON COLUMN bets.profit IS 'Lucro/prejuízo da aposta';
 -- ================================================
 CREATE TABLE bankroll (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
     current_balance DECIMAL(10,2) NOT NULL DEFAULT 0,
     initial_balance DECIMAL(10,2) NOT NULL DEFAULT 0,
     currency VARCHAR(3) DEFAULT 'BRL',
@@ -123,14 +128,18 @@ CREATE TABLE bankroll (
     -- Constraints
     CONSTRAINT chk_balance_non_negative CHECK (current_balance >= 0),
     CONSTRAINT chk_initial_balance_positive CHECK (initial_balance > 0),
-    CONSTRAINT chk_stake_percentage_valid CHECK (stake_percentage > 0 AND stake_percentage <= 100)
+    CONSTRAINT chk_stake_percentage_valid CHECK (stake_percentage > 0 AND stake_percentage <= 100),
+    CONSTRAINT fk_bankroll_user FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE,
+    CONSTRAINT unique_user_bankroll UNIQUE (user_id)
 );
 
 -- Índices para performance
 CREATE INDEX idx_bankroll_updated_at ON bankroll(updated_at);
+CREATE INDEX idx_bankroll_user_id ON bankroll(user_id);
 
 -- Comentários
 COMMENT ON TABLE bankroll IS 'Gestão de banca/saldo do usuário';
+COMMENT ON COLUMN bankroll.user_id IS 'ID do usuário dono da banca';
 COMMENT ON COLUMN bankroll.current_balance IS 'Saldo atual disponível';
 COMMENT ON COLUMN bankroll.initial_balance IS 'Saldo inicial cadastrado (para histórico)';
 COMMENT ON COLUMN bankroll.currency IS 'Moeda (BRL, USD, EUR, etc)';

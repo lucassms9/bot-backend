@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { SupabaseService } from '../supabase.service';
 import { Logger } from '../../../utils/logger';
-import { Bankroll, CreateBankrollDto, UpdateBankrollDto } from '../interfaces/bankroll.interface';
+import { Bankroll, CreateBankrollDto } from '../interfaces/bankroll.interface';
 
 @Injectable()
 export class BankrollRepository {
@@ -10,15 +10,32 @@ export class BankrollRepository {
   constructor(private supabase: SupabaseService) {}
 
   /**
-   * Get current bankroll (assumes single user system)
+   * Get all user IDs that have a bankroll configured
+   * Uses service role client to bypass RLS (for cron jobs)
    */
-  async getCurrent(): Promise<Bankroll | null> {
+  async getAllUserIds(): Promise<string[]> {
     const { data, error } = await this.supabase
-      .getClient()
+      .getServiceRoleClient()
+      .from('bankroll')
+      .select('user_id');
+
+    if (error) {
+      this.logger.error(`Error fetching user IDs: ${error.message}`, 'BankrollRepository');
+      throw error;
+    }
+
+    return (data || []).map((row) => row.user_id);
+  }
+
+  /**
+   * Get current bankroll for specific user
+   */
+  async getCurrent(userId: string): Promise<Bankroll | null> {
+    const { data, error } = await this.supabase
+      .getServiceRoleClient()
       .from('bankroll')
       .select('*')
-      .order('created_at', { ascending: false })
-      .limit(1)
+      .eq('user_id', userId)
       .single();
 
     if (error) {
@@ -34,13 +51,38 @@ export class BankrollRepository {
   }
 
   /**
-   * Create initial bankroll
+   * Get current bankroll for specific user (admin - bypasses RLS)
+   * Use this for cron jobs and admin operations
    */
-  async create(dto: CreateBankrollDto): Promise<Bankroll> {
+  async getCurrentAsAdmin(userId: string): Promise<Bankroll | null> {
     const { data, error } = await this.supabase
-      .getClient()
+      .getServiceRoleClient()
+      .from('bankroll')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        // No rows returned
+        return null;
+      }
+      this.logger.error(`Error fetching bankroll (admin): ${error.message}`, 'BankrollRepository');
+      throw error;
+    }
+
+    return data as Bankroll;
+  }
+
+  /**
+   * Create initial bankroll for user
+   */
+  async create(userId: string, dto: CreateBankrollDto): Promise<Bankroll> {
+    const { data, error } = await this.supabase
+      .getServiceRoleClient()
       .from('bankroll')
       .insert({
+        user_id: userId,
         initial_balance: dto.initial_balance,
         current_balance: dto.initial_balance,
         currency: dto.currency || 'BRL',
@@ -55,7 +97,7 @@ export class BankrollRepository {
     }
 
     this.logger.log(
-      `Bankroll created: ${dto.initial_balance} ${dto.currency || 'BRL'} (${dto.stake_percentage || 10}%)`,
+      `Bankroll created for user ${userId}: ${dto.initial_balance} ${dto.currency || 'BRL'} (${dto.stake_percentage || 10}%)`,
       'BankrollRepository',
     );
 
@@ -65,15 +107,16 @@ export class BankrollRepository {
   /**
    * Update current balance
    */
-  async updateBalance(id: string, newBalance: number): Promise<Bankroll> {
+  async updateBalance(userId: string, id: string, newBalance: number): Promise<Bankroll> {
     const { data, error } = await this.supabase
-      .getClient()
+      .getServiceRoleClient()
       .from('bankroll')
       .update({
         current_balance: newBalance,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
+      .eq('user_id', userId)
       .select()
       .single();
 
@@ -82,7 +125,10 @@ export class BankrollRepository {
       throw error;
     }
 
-    this.logger.log(`Bankroll updated: new balance = ${newBalance}`, 'BankrollRepository');
+    this.logger.log(
+      `Bankroll updated for user ${userId}: new balance = ${newBalance}`,
+      'BankrollRepository',
+    );
 
     return data as Bankroll;
   }
@@ -90,46 +136,60 @@ export class BankrollRepository {
   /**
    * Add to balance (for wins)
    */
-  async addToBalance(id: string, amount: number): Promise<Bankroll> {
-    const current = await this.getCurrent();
+  async addToBalance(userId: string, id: string, amount: number): Promise<Bankroll> {
+    const current = await this.getCurrent(userId);
     if (!current) {
       throw new Error('No bankroll found');
     }
 
     const newBalance = current.current_balance + amount;
-    return this.updateBalance(id, newBalance);
+    return this.updateBalance(userId, id, newBalance);
   }
 
   /**
    * Subtract from balance (for losses)
    */
-  async subtractFromBalance(id: string, amount: number): Promise<Bankroll> {
-    const current = await this.getCurrent();
+  async subtractFromBalance(userId: string, id: string, amount: number): Promise<Bankroll> {
+    const current = await this.getCurrent(userId);
     if (!current) {
       throw new Error('No bankroll found');
     }
 
     const newBalance = Math.max(0, current.current_balance - amount);
-    return this.updateBalance(id, newBalance);
+    return this.updateBalance(userId, id, newBalance);
   }
 
   /**
    * Reset bankroll to initial balance
    */
-  async reset(id: string): Promise<Bankroll> {
-    const current = await this.getCurrent();
+  async reset(userId: string, id: string): Promise<Bankroll> {
+    const current = await this.getCurrent(userId);
     if (!current) {
       throw new Error('No bankroll found');
     }
 
-    return this.updateBalance(id, current.initial_balance);
+    return this.updateBalance(userId, id, current.initial_balance);
   }
 
   /**
    * Get suggested stake (based on configured percentage of current balance)
    */
-  async getSuggestedStake(): Promise<number> {
-    const bankroll = await this.getCurrent();
+  async getSuggestedStake(userId: string): Promise<number> {
+    const bankroll = await this.getCurrent(userId);
+    if (!bankroll) {
+      return 0;
+    }
+
+    const percentage = bankroll.stake_percentage / 100;
+    return parseFloat((bankroll.current_balance * percentage).toFixed(2));
+  }
+
+  /**
+   * Get suggested stake (admin - bypasses RLS)
+   * Use this for cron jobs and admin operations
+   */
+  async getSuggestedStakeAsAdmin(userId: string): Promise<number> {
+    const bankroll = await this.getCurrentAsAdmin(userId);
     if (!bankroll) {
       return 0;
     }

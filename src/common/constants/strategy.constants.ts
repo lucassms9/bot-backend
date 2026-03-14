@@ -8,7 +8,7 @@ export const STRATEGY_CONFIG = {
   MAX_ODD: 1.55,
 
   // Pair building
-  MIN_PAIR_ODD: 1.60,
+  MIN_PAIR_ODD: 1.6,
   MIN_TIME_DIFF_HOURS: 2,
 
   // Risk calculation weights

@@ -1,9 +1,13 @@
-import { Controller, Get, Post } from '@nestjs/common';
+import { Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { BetsService } from './bets.service';
 import { PairBuilderService } from './pair-builder.service';
 import { Logger } from '../../utils/logger';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { User } from '../database/interfaces/user.interface';
 
 @Controller('bets')
+@UseGuards(JwtAuthGuard)
 export class BetsController {
   private readonly logger = new Logger(BetsController.name);
 
@@ -13,15 +17,15 @@ export class BetsController {
   ) {}
 
   /**
-   * Manual endpoint to build pairs
+   * Manual endpoint to build pairs for current user
    */
   @Post('build-pairs')
-  async buildPairs() {
-    this.logger.log('Manual pair building triggered', 'BetsController');
+  async buildPairs(@CurrentUser() user: User) {
+    this.logger.log(`Manual pair building triggered by user ${user.id}`, 'BetsController');
 
     try {
       const pairs = await this.pairBuilderService.buildPairs();
-      const createdBets = await this.betsService.createMany(pairs);
+      const createdBets = await this.betsService.createMany(user.id, pairs);
 
       return {
         success: true,
@@ -37,31 +41,31 @@ export class BetsController {
   }
 
   /**
-   * Get all bets
+   * Get all bets for current user
    */
   @Get()
-  async getAllBets() {
-    return this.betsService.findAll();
+  async getAllBets(@CurrentUser() user: User) {
+    return this.betsService.findAll(user.id);
   }
 
   /**
-   * Get pending bets
+   * Get pending bets for current user
    */
   @Get('pending')
-  async getPendingBets() {
-    return this.betsService.getPendingBets();
+  async getPendingBets(@CurrentUser() user: User) {
+    return this.betsService.getPendingBets(user.id);
   }
 
   /**
-   * Get bet statistics
+   * Get bet statistics for current user
    */
   @Get('statistics')
-  async getStatistics() {
-    return this.betsService.getStatistics();
+  async getStatistics(@CurrentUser() user: User) {
+    return this.betsService.getStatistics(user.id);
   }
 
   /**
-   * Get pairing statistics
+   * Get pairing statistics (shared data)
    */
   @Get('pairing-stats')
   async getPairingStats() {

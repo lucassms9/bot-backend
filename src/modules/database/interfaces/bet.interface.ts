@@ -2,6 +2,7 @@ import { BetResult } from '../../../common/constants/strategy.constants';
 
 export interface Bet {
   id?: string;
+  user_id?: string;
   game1_id: string;
   game2_id: string;
   odd_total: number;

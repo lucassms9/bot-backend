@@ -1,8 +1,11 @@
-import { Controller, Get, Param, Query, Post, Patch, Body } from '@nestjs/common';
+import { Controller, Get, Param, Query, Post, Patch, Body, UseGuards } from '@nestjs/common';
 import { OpportunitiesRepository } from '../database/repositories/opportunities.repository';
 import { BetsRepository } from '../database/repositories/bets.repository';
 import { EventsRepository } from '../database/repositories/events.repository';
 import { BankrollService } from '../bankroll/bankroll.service';
+import { PairBuilderService } from '../bets/pair-builder.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { OpportunityStatus } from '../../common/constants/strategy.constants';
 import { Logger } from '../../utils/logger';
 
@@ -15,6 +18,7 @@ export class ApiController {
     private betsRepository: BetsRepository,
     private eventsRepository: EventsRepository,
     private bankrollService: BankrollService,
+    private pairBuilderService: PairBuilderService,
   ) {}
 
   /**
@@ -83,15 +87,16 @@ export class ApiController {
   }
 
   /**
-   * 🎲 Listar duplas de apostas
+   * 🎲 Listar duplas de apostas do usuário autenticado
    * GET /api/bets
    */
   @Get('bets')
-  async getBets(@Query('status') status?: string) {
-    this.logger.log('Getting bets list', 'ApiController');
+  @UseGuards(JwtAuthGuard)
+  async getBets(@CurrentUser() user: any, @Query('status') status?: string) {
+    this.logger.log(`Getting bets list for user ${user.id}`, 'ApiController');
 
-    // Buscar todas as apostas
-    const bets = await this.betsRepository.findAll();
+    // Buscar todas as apostas do usuário
+    const bets = await this.betsRepository.findAll(user.id);
 
     // Filtrar por status se fornecido
     const filtered = status ? bets.filter((bet) => bet.result === status) : bets;
@@ -195,12 +200,13 @@ export class ApiController {
   }
 
   /**
-   * 📊 Detalhes de uma aposta específica
+   * 📊 Detalhes de uma aposta específica do usuário
    * GET /api/bets/:id
    */
   @Get('bets/:id')
-  async getBetDetails(@Param('id') id: string) {
-    const bets = await this.getBets();
+  @UseGuards(JwtAuthGuard)
+  async getBetDetails(@CurrentUser() user: any, @Param('id') id: string) {
+    const bets = await this.getBets(user);
     const bet = bets.bets.find((b) => b?.id === id);
 
     if (!bet) {
@@ -238,12 +244,13 @@ export class ApiController {
   }
 
   /**
-   * 📈 Estatísticas gerais
+   * 📈 Estatísticas gerais do usuário
    * GET /api/stats
    */
   @Get('stats')
-  async getStats() {
-    const [opportunities, bets] = await Promise.all([this.getOpportunities(), this.getBets()]);
+  @UseGuards(JwtAuthGuard)
+  async getStats(@CurrentUser() user: any) {
+    const [opportunities, bets] = await Promise.all([this.getOpportunities(), this.getBets(user)]);
 
     const pendingOpps = opportunities.opportunities.filter((o) => o.status === 'pending').length;
 
@@ -291,14 +298,15 @@ export class ApiController {
   }
 
   /**
-   * 💰 Obter saldo atual da banca
+   * 💰 Obter saldo atual da banca do usuário
    * GET /api/bankroll
    */
   @Get('bankroll')
-  async getBankroll() {
+  @UseGuards(JwtAuthGuard)
+  async getBankroll(@CurrentUser() user: any) {
     try {
-      const bankroll = await this.bankrollService.getCurrent();
-      const stats = await this.bankrollService.getStats();
+      const bankroll = await this.bankrollService.getCurrent(user.id);
+      const stats = await this.bankrollService.getStats(user.id);
 
       return {
         success: true,
@@ -325,16 +333,18 @@ export class ApiController {
   }
 
   /**
-   * 💵 Criar ou atualizar saldo da banca
+   * 💵 Criar ou atualizar saldo da banca do usuário
    * POST /api/bankroll
    * Body: { "initial_balance": 1000, "currency": "BRL", "stake_percentage": 10 }
    */
   @Post('bankroll')
+  @UseGuards(JwtAuthGuard)
   async createOrUpdateBankroll(
+    @CurrentUser() user: any,
     @Body() body: { initial_balance: number; currency?: string; stake_percentage?: number },
   ) {
     try {
-      const bankroll = await this.bankrollService.createOrUpdate({
+      const bankroll = await this.bankrollService.createOrUpdate(user.id, {
         initial_balance: body.initial_balance,
         currency: body.currency || 'BRL',
         stake_percentage: body.stake_percentage || 10,
@@ -362,19 +372,21 @@ export class ApiController {
   }
 
   /**
-   * 🎯 Marcar resultado de uma aposta
+   * 🎯 Marcar resultado de uma aposta do usuário
    * PATCH /api/bets/:id/result
    * Body: { "result": "won" | "lost", "finalValue": 205.50 }
    * finalValue = lucro final (green) ou prejuízo final (red)
    */
   @Patch('bets/:id/result')
+  @UseGuards(JwtAuthGuard)
   async markBetResult(
+    @CurrentUser() user: any,
     @Param('id') id: string,
     @Body() body: { result: 'won' | 'lost'; finalValue: number },
   ) {
     try {
-      // Buscar a aposta
-      const bet = await this.betsRepository.findById(id);
+      // Buscar a aposta do usuário
+      const bet = await this.betsRepository.findById(user.id, id);
       if (!bet) {
         return {
           success: false,
@@ -387,13 +399,14 @@ export class ApiController {
       const profit = body.result === 'won' ? body.finalValue : -body.finalValue;
 
       // Atualizar aposta no banco
-      const updatedBet = await this.betsRepository.update(id, {
+      const updatedBet = await this.betsRepository.update(user.id, id, {
         result: body.result as any,
         profit: profit,
       });
 
       // Atualizar bankroll com o valor real informado
       const updatedBankroll = await this.bankrollService.processBetResultWithFinalValue(
+        user.id,
         id,
         body.result,
         body.finalValue,
@@ -412,6 +425,58 @@ export class ApiController {
           currentBalance: updatedBankroll.current_balance,
           profit: updatedBankroll.current_balance - updatedBankroll.initial_balance,
         },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  /**
+   * 🎰 Criar duplas de apostas automaticamente para o usuário
+   * POST /api/bets/create-pairs
+   * Cria pares de apostas baseado nas oportunidades disponíveis
+   */
+  @Post('bets/create-pairs')
+  @UseGuards(JwtAuthGuard)
+  async createBetPairs(@CurrentUser() user: any) {
+    try {
+      this.logger.log(`Creating bet pairs for user ${user.id}`, 'ApiController');
+
+      // Build pairs from available opportunities
+      const pairs = await this.pairBuilderService.buildPairs();
+
+      if (pairs.length === 0) {
+        return {
+          success: true,
+          message: 'No bet pairs could be built from available opportunities',
+          pairsCreated: 0,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      // Get user's bankroll to calculate suggested stake
+      const bankroll = await this.bankrollService.getCurrent(user.id);
+      const suggestedStake = await this.bankrollService.getSuggestedStake(user.id);
+
+      // Create bets for this user
+      const betsToCreate = pairs.map((pair) => ({
+        ...pair,
+        suggested_stake: suggestedStake,
+      }));
+
+      const savedBets = await this.betsRepository.createMany(user.id, betsToCreate);
+
+      return {
+        success: true,
+        message: `${savedBets.length} bet pairs created successfully`,
+        pairsCreated: savedBets.length,
+        suggestedStake: suggestedStake,
+        bankrollBalance: bankroll.current_balance,
         timestamp: new Date().toISOString(),
       };
     } catch (error) {

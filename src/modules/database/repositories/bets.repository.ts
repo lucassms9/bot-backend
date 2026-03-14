@@ -14,16 +14,17 @@ export class BetsRepository {
   /**
    * Create new bet
    */
-  async create(betDto: CreateBetDto): Promise<Bet> {
+  async create(userId: string, betDto: CreateBetDto): Promise<Bet> {
     this.logger.logDB('BetsRepository', 'INSERT', this.tableName);
 
     const dataToInsert = {
       ...betDto,
+      user_id: userId,
       result: betDto.result || BetResult.PENDING,
     };
 
     const { data, error } = await this.supabaseService
-      .getClient()
+      .getServiceRoleClient()
       .from(this.tableName)
       .insert([dataToInsert])
       .select()
@@ -34,14 +35,17 @@ export class BetsRepository {
       throw error;
     }
 
-    this.logger.logSuccess('BetsRepository', `Bet created with odd ${betDto.odd_total.toFixed(2)}`);
+    this.logger.logSuccess(
+      'BetsRepository',
+      `Bet created for user ${userId} with odd ${betDto.odd_total.toFixed(2)}`,
+    );
     return data;
   }
 
   /**
    * Bulk create bets
    */
-  async createMany(bets: CreateBetDto[]): Promise<Bet[]> {
+  async createMany(userId: string, bets: CreateBetDto[]): Promise<Bet[]> {
     if (bets.length === 0) {
       return [];
     }
@@ -50,11 +54,12 @@ export class BetsRepository {
 
     const dataToInsert = bets.map((bet) => ({
       ...bet,
+      user_id: userId,
       result: bet.result || BetResult.PENDING,
     }));
 
     const { data, error } = await this.supabaseService
-      .getClient()
+      .getServiceRoleClient()
       .from(this.tableName)
       .insert(dataToInsert)
       .select();
@@ -64,20 +69,53 @@ export class BetsRepository {
       throw error;
     }
 
-    this.logger.logSuccess('BetsRepository', `${data.length} bets created`);
+    this.logger.logSuccess('BetsRepository', `${data.length} bets created for user ${userId}`);
     return data;
   }
 
   /**
-   * Find bets by result
+   * Bulk create bets using service role (bypasses RLS)
+   * Use this for cron jobs and admin operations
    */
-  async findByResult(result: BetResult): Promise<Bet[]> {
+  async createManyAsAdmin(userId: string, bets: CreateBetDto[]): Promise<Bet[]> {
+    if (bets.length === 0) {
+      return [];
+    }
+
+    this.logger.logDB('BetsRepository', 'BULK INSERT (ADMIN)', this.tableName);
+
+    const dataToInsert = bets.map((bet) => ({
+      ...bet,
+      user_id: userId,
+      result: bet.result || BetResult.PENDING,
+    }));
+
+    const { data, error } = await this.supabaseService
+      .getServiceRoleClient()
+      .from(this.tableName)
+      .insert(dataToInsert)
+      .select();
+
+    if (error) {
+      this.logger.logError('BetsRepository', 'Error bulk creating bets (admin)', error);
+      throw error;
+    }
+
+    this.logger.logSuccess('BetsRepository', `${data.length} bets created for user ${userId} (admin)`);
+    return data;
+  }
+
+  /**
+   * Find bets by result for specific user
+   */
+  async findByResult(userId: string, result: BetResult): Promise<Bet[]> {
     this.logger.logDB('BetsRepository', 'SELECT', this.tableName);
 
     const { data, error } = await this.supabaseService
-      .getClient()
+      .getServiceRoleClient()
       .from(this.tableName)
       .select('*')
+      .eq('user_id', userId)
       .eq('result', result)
       .order('created_at', { ascending: false });
 
@@ -90,15 +128,16 @@ export class BetsRepository {
   }
 
   /**
-   * Find all bets
+   * Find all bets for specific user
    */
-  async findAll(): Promise<Bet[]> {
+  async findAll(userId: string): Promise<Bet[]> {
     this.logger.logDB('BetsRepository', 'SELECT ALL', this.tableName);
 
     const { data, error } = await this.supabaseService
-      .getClient()
+      .getServiceRoleClient()
       .from(this.tableName)
       .select('*')
+      .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -112,7 +151,12 @@ export class BetsRepository {
   /**
    * Update bet result and profit
    */
-  async updateResult(id: string, result: BetResult, profit?: number): Promise<void> {
+  async updateResult(
+    userId: string,
+    id: string,
+    result: BetResult,
+    profit?: number,
+  ): Promise<void> {
     this.logger.logDB('BetsRepository', 'UPDATE', this.tableName);
 
     const updateData: any = { result };
@@ -121,10 +165,11 @@ export class BetsRepository {
     }
 
     const { error } = await this.supabaseService
-      .getClient()
+      .getServiceRoleClient()
       .from(this.tableName)
       .update(updateData)
-      .eq('id', id);
+      .eq('id', id)
+      .eq('user_id', userId);
 
     if (error) {
       this.logger.logError('BetsRepository', 'Error updating result', error);
@@ -135,13 +180,14 @@ export class BetsRepository {
   }
 
   /**
-   * Get bets count by result
+   * Get bets count by result for specific user
    */
-  async countByResult(result: BetResult): Promise<number> {
+  async countByResult(userId: string, result: BetResult): Promise<number> {
     const { count, error } = await this.supabaseService
-      .getClient()
+      .getServiceRoleClient()
       .from(this.tableName)
       .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
       .eq('result', result);
 
     if (error) {
@@ -153,13 +199,14 @@ export class BetsRepository {
   }
 
   /**
-   * Get total profit
+   * Get total profit for specific user
    */
-  async getTotalProfit(): Promise<number> {
+  async getTotalProfit(userId: string): Promise<number> {
     const { data, error } = await this.supabaseService
-      .getClient()
+      .getServiceRoleClient()
       .from(this.tableName)
-      .select('profit');
+      .select('profit')
+      .eq('user_id', userId);
 
     if (error) {
       this.logger.logError('BetsRepository', 'Error calculating total profit', error);
@@ -174,16 +221,17 @@ export class BetsRepository {
   }
 
   /**
-   * Find bet by ID
+   * Find bet by ID for specific user
    */
-  async findById(id: string): Promise<Bet | null> {
+  async findById(userId: string, id: string): Promise<Bet | null> {
     this.logger.logDB('BetsRepository', 'SELECT BY ID', this.tableName);
 
     const { data, error } = await this.supabaseService
-      .getClient()
+      .getServiceRoleClient()
       .from(this.tableName)
       .select('*')
       .eq('id', id)
+      .eq('user_id', userId)
       .single();
 
     if (error) {
@@ -198,16 +246,17 @@ export class BetsRepository {
   }
 
   /**
-   * Update bet
+   * Update bet for specific user
    */
-  async update(id: string, updates: Partial<Bet>): Promise<Bet> {
+  async update(userId: string, id: string, updates: Partial<Bet>): Promise<Bet> {
     this.logger.logDB('BetsRepository', 'UPDATE', this.tableName);
 
     const { data, error } = await this.supabaseService
-      .getClient()
+      .getServiceRoleClient()
       .from(this.tableName)
       .update(updates)
       .eq('id', id)
+      .eq('user_id', userId)
       .select()
       .single();
 
@@ -216,7 +265,7 @@ export class BetsRepository {
       throw error;
     }
 
-    this.logger.logSuccess('BetsRepository', `Bet ${id} updated`);
+    this.logger.logSuccess('BetsRepository', `Bet ${id} updated for user ${userId}`);
     return data;
   }
 }

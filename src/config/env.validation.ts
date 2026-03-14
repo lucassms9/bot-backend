@@ -29,6 +29,9 @@ class EnvironmentVariables {
   @IsString()
   SUPABASE_KEY: string;
 
+  @IsString()
+  SUPABASE_SERVICE_ROLE_KEY: string;
+
   @IsNumber()
   MIN_HANDICAP: number;
 

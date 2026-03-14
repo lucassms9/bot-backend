@@ -1,11 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { BankrollRepository } from '../database/repositories/bankroll.repository';
 import { Logger } from '../../utils/logger';
-import {
-  Bankroll,
-  CreateBankrollDto,
-  UpdateBankrollDto,
-} from '../database/interfaces/bankroll.interface';
+import { Bankroll, CreateBankrollDto } from '../database/interfaces/bankroll.interface';
 
 @Injectable()
 export class BankrollService {
@@ -14,10 +10,10 @@ export class BankrollService {
   constructor(private bankrollRepository: BankrollRepository) {}
 
   /**
-   * Get current bankroll
+   * Get current bankroll for specific user
    */
-  async getCurrent(): Promise<Bankroll> {
-    const bankroll = await this.bankrollRepository.getCurrent();
+  async getCurrent(userId: string): Promise<Bankroll> {
+    const bankroll = await this.bankrollRepository.getCurrent(userId);
 
     if (!bankroll) {
       throw new NotFoundException('Bankroll not found. Please create one first.');
@@ -27,45 +23,46 @@ export class BankrollService {
   }
 
   /**
-   * Create or update bankroll
+   * Create or update bankroll for specific user
    */
-  async createOrUpdate(dto: CreateBankrollDto): Promise<Bankroll> {
-    const existing = await this.bankrollRepository.getCurrent();
+  async createOrUpdate(userId: string, dto: CreateBankrollDto): Promise<Bankroll> {
+    const existing = await this.bankrollRepository.getCurrent(userId);
 
     if (existing) {
       // Update existing
-      return this.bankrollRepository.updateBalance(existing.id, dto.initial_balance);
+      return this.bankrollRepository.updateBalance(userId, existing.id, dto.initial_balance);
     }
 
     // Create new
-    return this.bankrollRepository.create(dto);
+    return this.bankrollRepository.create(userId, dto);
   }
 
   /**
    * Update balance manually
    */
-  async updateBalance(newBalance: number): Promise<Bankroll> {
-    const current = await this.getCurrent();
-    return this.bankrollRepository.updateBalance(current.id, newBalance);
+  async updateBalance(userId: string, newBalance: number): Promise<Bankroll> {
+    const current = await this.getCurrent(userId);
+    return this.bankrollRepository.updateBalance(userId, current.id, newBalance);
   }
 
   /**
    * Get suggested stake (based on configured percentage of current balance)
    */
-  async getSuggestedStake(): Promise<number> {
-    return this.bankrollRepository.getSuggestedStake();
+  async getSuggestedStake(userId: string): Promise<number> {
+    return this.bankrollRepository.getSuggestedStake(userId);
   }
 
   /**
    * Process bet result and update balance
    */
   async processBetResult(
+    userId: string,
     betId: string,
     result: 'won' | 'lost',
     stake: number,
     odd: number,
   ): Promise<Bankroll> {
-    const current = await this.getCurrent();
+    const current = await this.getCurrent(userId);
 
     if (result === 'won') {
       const profit = stake * (odd - 1);
@@ -73,13 +70,13 @@ export class BankrollService {
         `Bet ${betId} won! Adding ${profit.toFixed(2)} to balance`,
         'BankrollService',
       );
-      return this.bankrollRepository.addToBalance(current.id, profit);
+      return this.bankrollRepository.addToBalance(userId, current.id, profit);
     } else {
       this.logger.log(
         `Bet ${betId} lost! Subtracting ${stake.toFixed(2)} from balance`,
         'BankrollService',
       );
-      return this.bankrollRepository.subtractFromBalance(current.id, stake);
+      return this.bankrollRepository.subtractFromBalance(userId, current.id, stake);
     }
   }
 
@@ -87,39 +84,40 @@ export class BankrollService {
    * Process bet result with final value (profit or loss) informed by user
    */
   async processBetResultWithFinalValue(
+    userId: string,
     betId: string,
     result: 'won' | 'lost',
     finalValue: number,
   ): Promise<Bankroll> {
-    const current = await this.getCurrent();
+    const current = await this.getCurrent(userId);
 
     if (result === 'won') {
       this.logger.log(
         `Bet ${betId} won! Adding ${finalValue.toFixed(2)} to balance`,
         'BankrollService',
       );
-      return this.bankrollRepository.addToBalance(current.id, finalValue);
+      return this.bankrollRepository.addToBalance(userId, current.id, finalValue);
     } else {
       this.logger.log(
         `Bet ${betId} lost! Subtracting ${finalValue.toFixed(2)} from balance`,
         'BankrollService',
       );
-      return this.bankrollRepository.subtractFromBalance(current.id, finalValue);
+      return this.bankrollRepository.subtractFromBalance(userId, current.id, finalValue);
     }
   }
 
   /**
    * Reset bankroll to initial balance
    */
-  async reset(): Promise<Bankroll> {
-    const current = await this.getCurrent();
-    return this.bankrollRepository.reset(current.id);
+  async reset(userId: string): Promise<Bankroll> {
+    const current = await this.getCurrent(userId);
+    return this.bankrollRepository.reset(userId, current.id);
   }
 
   /**
-   * Get statistics
+   * Get statistics for specific user
    */
-  async getStats(): Promise<{
+  async getStats(userId: string): Promise<{
     currentBalance: number;
     initialBalance: number;
     profit: number;
@@ -127,10 +125,10 @@ export class BankrollService {
     suggestedStake: number;
     stakePercentage: number;
   }> {
-    const bankroll = await this.getCurrent();
+    const bankroll = await this.getCurrent(userId);
     const profit = bankroll.current_balance - bankroll.initial_balance;
     const profitPercentage = (profit / bankroll.initial_balance) * 100;
-    const suggestedStake = await this.getSuggestedStake();
+    const suggestedStake = await this.getSuggestedStake(userId);
 
     return {
       currentBalance: bankroll.current_balance,
