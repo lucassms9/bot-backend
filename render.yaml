@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: bot-apostas-backend
+    runtime: node
+    env: node
+    region: oregon
+    plan: free
+    branch: main
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:prod
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: ODDS_API_KEY
+        sync: false
+      - key: ODDS_API_BASE_URL
+        value: https://api.the-odds-api.com/v4
+      - key: USE_MOCK_DATA
+        value: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: MIN_HANDICAP
+        value: 1.0
+      - key: MIN_ODD
+        value: 1.25
+      - key: MAX_ODD
+        value: 1.55
+      - key: MIN_PAIR_ODD
+        value: 1.60
+      - key: CRON_ODDS_PROCESSOR
+        value: "*/30 * * * *"
+      - key: SPORT_KEY
+        value: soccer_brazil_campeonato
+      - key: MARKET
+        value: spreads
+      - key: REGIONS
+        value: eu
+      - key: ODDS_FORMAT
+        value: decimal
+      - key: LOG_LEVEL
+        value: info
