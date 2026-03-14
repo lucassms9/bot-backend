@@ -6,6 +6,8 @@ export interface Bet {
   game2_id: string;
   odd_total: number;
   risk_total: number;
+  stake?: number;
+  suggested_stake?: number;
   created_at?: Date;
   result?: BetResult;
   profit?: number;
@@ -16,5 +18,7 @@ export interface CreateBetDto {
   game2_id: string;
   odd_total: number;
   risk_total: number;
+  stake?: number;
+  suggested_stake?: number;
   result?: BetResult;
 }

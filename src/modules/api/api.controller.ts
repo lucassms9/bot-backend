@@ -1,7 +1,8 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, Post, Patch, Body } from '@nestjs/common';
 import { OpportunitiesRepository } from '../database/repositories/opportunities.repository';
 import { BetsRepository } from '../database/repositories/bets.repository';
 import { EventsRepository } from '../database/repositories/events.repository';
+import { BankrollService } from '../bankroll/bankroll.service';
 import { OpportunityStatus } from '../../common/constants/strategy.constants';
 import { Logger } from '../../utils/logger';
 
@@ -13,6 +14,7 @@ export class ApiController {
     private opportunitiesRepository: OpportunitiesRepository,
     private betsRepository: BetsRepository,
     private eventsRepository: EventsRepository,
+    private bankrollService: BankrollService,
   ) {}
 
   /**
@@ -36,7 +38,7 @@ export class ApiController {
         return {
           id: opp.id,
           status: opp.status,
-          
+
           // Informações do jogo
           match: {
             eventId: opp.event_id,
@@ -92,9 +94,7 @@ export class ApiController {
     const bets = await this.betsRepository.findAll();
 
     // Filtrar por status se fornecido
-    const filtered = status
-      ? bets.filter((bet) => bet.result === status)
-      : bets;
+    const filtered = status ? bets.filter((bet) => bet.result === status) : bets;
 
     // Enriquecer com dados completos
     const enriched = await Promise.all(
@@ -239,14 +239,9 @@ export class ApiController {
    */
   @Get('stats')
   async getStats() {
-    const [opportunities, bets] = await Promise.all([
-      this.getOpportunities(),
-      this.getBets(),
-    ]);
+    const [opportunities, bets] = await Promise.all([this.getOpportunities(), this.getBets()]);
 
-    const pendingOpps = opportunities.opportunities.filter(
-      (o) => o.status === 'pending',
-    ).length;
+    const pendingOpps = opportunities.opportunities.filter((o) => o.status === 'pending').length;
 
     const pendingBets = bets.bets.filter((b) => b?.status === 'pending').length;
     const wonBets = bets.bets.filter((b) => b?.status === 'won').length;
@@ -289,6 +284,146 @@ export class ApiController {
       },
       timestamp: new Date().toISOString(),
     };
+  }
+
+  /**
+   * 💰 Obter saldo atual da banca
+   * GET /api/bankroll
+   */
+  @Get('bankroll')
+  async getBankroll() {
+    try {
+      const bankroll = await this.bankrollService.getCurrent();
+      const stats = await this.bankrollService.getStats();
+
+      return {
+        success: true,
+        bankroll: {
+          id: bankroll.id,
+          currentBalance: bankroll.current_balance,
+          initialBalance: bankroll.initial_balance,
+          currency: bankroll.currency,
+          stakePercentage: bankroll.stake_percentage,
+          profit: stats.profit,
+          profitPercentage: stats.profitPercentage.toFixed(2),
+          suggestedStake: stats.suggestedStake,
+          updatedAt: bankroll.updated_at,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  /**
+   * 💵 Criar ou atualizar saldo da banca
+   * POST /api/bankroll
+   * Body: { "initial_balance": 1000, "currency": "BRL", "stake_percentage": 10 }
+   */
+  @Post('bankroll')
+  async createOrUpdateBankroll(
+    @Body() body: { initial_balance: number; currency?: string; stake_percentage?: number },
+  ) {
+    try {
+      const bankroll = await this.bankrollService.createOrUpdate({
+        initial_balance: body.initial_balance,
+        currency: body.currency || 'BRL',
+        stake_percentage: body.stake_percentage || 10,
+      });
+
+      return {
+        success: true,
+        message: 'Bankroll created/updated successfully',
+        bankroll: {
+          id: bankroll.id,
+          currentBalance: bankroll.current_balance,
+          initialBalance: bankroll.initial_balance,
+          currency: bankroll.currency,
+          stakePercentage: bankroll.stake_percentage,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  /**
+   * 🎯 Marcar resultado de uma aposta
+   * PATCH /api/bets/:id/result
+   * Body: { "result": "won" | "lost", "stake": 100 }
+   */
+  @Patch('bets/:id/result')
+  async markBetResult(
+    @Param('id') id: string,
+    @Body() body: { result: 'won' | 'lost'; stake: number },
+  ) {
+    try {
+      // Buscar a aposta
+      const bet = await this.betsRepository.findById(id);
+      if (!bet) {
+        return {
+          success: false,
+          error: 'Bet not found',
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      // Calcular lucro/prejuízo
+      let profit = 0;
+      if (body.result === 'won') {
+        profit = body.stake * (bet.odd_total - 1);
+      } else {
+        profit = -body.stake;
+      }
+
+      // Atualizar aposta no banco
+      const updatedBet = await this.betsRepository.update(id, {
+        result: body.result as any,
+        stake: body.stake,
+        profit: profit,
+      });
+
+      // Atualizar bankroll
+      const updatedBankroll = await this.bankrollService.processBetResult(
+        id,
+        body.result,
+        body.stake,
+        bet.odd_total,
+      );
+
+      return {
+        success: true,
+        message: `Bet marked as ${body.result}`,
+        bet: {
+          id: updatedBet.id,
+          result: updatedBet.result,
+          stake: body.stake,
+          profit: profit.toFixed(2),
+          oddTotal: bet.odd_total,
+        },
+        bankroll: {
+          currentBalance: updatedBankroll.current_balance,
+          profit: updatedBankroll.current_balance - updatedBankroll.initial_balance,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
   }
 
   // ========================================

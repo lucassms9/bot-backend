@@ -34,10 +34,7 @@ export class BetsRepository {
       throw error;
     }
 
-    this.logger.logSuccess(
-      'BetsRepository',
-      `Bet created with odd ${betDto.odd_total.toFixed(2)}`,
-    );
+    this.logger.logSuccess('BetsRepository', `Bet created with odd ${betDto.odd_total.toFixed(2)}`);
     return data;
   }
 
@@ -174,5 +171,52 @@ export class BetsRepository {
     }
 
     return data.reduce((sum, bet) => sum + (bet.profit || 0), 0);
+  }
+
+  /**
+   * Find bet by ID
+   */
+  async findById(id: string): Promise<Bet | null> {
+    this.logger.logDB('BetsRepository', 'SELECT BY ID', this.tableName);
+
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from(this.tableName)
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      this.logger.logError('BetsRepository', 'Error finding by ID', error);
+      throw error;
+    }
+
+    return data;
+  }
+
+  /**
+   * Update bet
+   */
+  async update(id: string, updates: Partial<Bet>): Promise<Bet> {
+    this.logger.logDB('BetsRepository', 'UPDATE', this.tableName);
+
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from(this.tableName)
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      this.logger.logError('BetsRepository', 'Error updating bet', error);
+      throw error;
+    }
+
+    this.logger.logSuccess('BetsRepository', `Bet ${id} updated`);
+    return data;
   }
 }

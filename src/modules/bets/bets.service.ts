@@ -2,20 +2,32 @@ import { Injectable } from '@nestjs/common';
 import { BetsRepository } from '../database/repositories/bets.repository';
 import { CreateBetDto, Bet } from '../database/interfaces/bet.interface';
 import { BetResult } from '../../common/constants/strategy.constants';
+import { BankrollService } from '../bankroll/bankroll.service';
 import { Logger } from '../../utils/logger';
 
 @Injectable()
 export class BetsService {
   private readonly logger = new Logger(BetsService.name);
 
-  constructor(private betsRepository: BetsRepository) {}
+  constructor(
+    private betsRepository: BetsRepository,
+    private bankrollService: BankrollService,
+  ) {}
 
   /**
    * Create a single bet
    */
   async create(betDto: CreateBetDto): Promise<Bet> {
     this.logger.logProcessing('BetsService', 'Creating bet');
-    return this.betsRepository.create(betDto);
+
+    // Add suggested stake (10% of bankroll)
+    const suggestedStake = await this.bankrollService.getSuggestedStake();
+    const betWithStake = {
+      ...betDto,
+      suggested_stake: suggestedStake,
+    };
+
+    return this.betsRepository.create(betWithStake);
   }
 
   /**
@@ -28,7 +40,15 @@ export class BetsService {
     }
 
     this.logger.logProcessing('BetsService', `Creating ${bets.length} bets`);
-    return this.betsRepository.createMany(bets);
+
+    // Add suggested stake to all bets
+    const suggestedStake = await this.bankrollService.getSuggestedStake();
+    const betsWithStake = bets.map((bet) => ({
+      ...bet,
+      suggested_stake: suggestedStake,
+    }));
+
+    return this.betsRepository.createMany(betsWithStake);
   }
 
   /**

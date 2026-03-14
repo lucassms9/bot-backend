@@ -108,6 +108,41 @@ COMMENT ON COLUMN bets.result IS 'Resultado: pending, won, lost, partial';
 COMMENT ON COLUMN bets.profit IS 'Lucro/prejuízo da aposta';
 
 -- ================================================
+-- TABELA: bankroll
+-- Gestão de saldo/banca do usuário
+-- ================================================
+CREATE TABLE bankroll (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    current_balance DECIMAL(10,2) NOT NULL DEFAULT 0,
+    initial_balance DECIMAL(10,2) NOT NULL DEFAULT 0,
+    currency VARCHAR(3) DEFAULT 'BRL',
+    stake_percentage DECIMAL(5,2) DEFAULT 10.00,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    -- Constraints
+    CONSTRAINT chk_balance_non_negative CHECK (current_balance >= 0),
+    CONSTRAINT chk_initial_balance_positive CHECK (initial_balance > 0),
+    CONSTRAINT chk_stake_percentage_valid CHECK (stake_percentage > 0 AND stake_percentage <= 100)
+);
+
+-- Índices para performance
+CREATE INDEX idx_bankroll_updated_at ON bankroll(updated_at);
+
+-- Comentários
+COMMENT ON TABLE bankroll IS 'Gestão de banca/saldo do usuário';
+COMMENT ON COLUMN bankroll.current_balance IS 'Saldo atual disponível';
+COMMENT ON COLUMN bankroll.initial_balance IS 'Saldo inicial cadastrado (para histórico)';
+COMMENT ON COLUMN bankroll.currency IS 'Moeda (BRL, USD, EUR, etc)';
+COMMENT ON COLUMN bankroll.stake_percentage IS 'Porcentagem do saldo para sugerir como stake (padrão 10%)';
+
+-- Modificar tabela bets para incluir stake (valor apostado)
+ALTER TABLE bets ADD COLUMN stake DECIMAL(10,2);
+ALTER TABLE bets ADD COLUMN suggested_stake DECIMAL(10,2);
+COMMENT ON COLUMN bets.stake IS 'Valor efetivamente apostado pelo usuário';
+COMMENT ON COLUMN bets.suggested_stake IS 'Valor sugerido (10% do bankroll)';
+
+-- ================================================
 -- QUERIES ÚTEIS
 -- ================================================
 

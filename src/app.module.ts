@@ -5,6 +5,7 @@ import { DatabaseModule } from './modules/database/database.module';
 import { OddsModule } from './modules/odds/odds.module';
 import { RiskModule } from './modules/risk/risk.module';
 import { BetsModule } from './modules/bets/bets.module';
+import { BankrollModule } from './modules/bankroll/bankroll.module';
 import { SchedulerModule } from './modules/scheduler/scheduler.module';
 import { TestModule } from './modules/test/test.module';
 import { HealthModule } from './modules/health/health.module';
@@ -28,6 +29,7 @@ import { envValidation } from './config/env.validation';
     OddsModule,
     RiskModule,
     BetsModule,
+    BankrollModule,
     SchedulerModule,
     TestModule,
     HealthModule,
