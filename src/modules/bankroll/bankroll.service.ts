@@ -84,6 +84,31 @@ export class BankrollService {
   }
 
   /**
+   * Process bet result with final value (profit or loss) informed by user
+   */
+  async processBetResultWithFinalValue(
+    betId: string,
+    result: 'won' | 'lost',
+    finalValue: number,
+  ): Promise<Bankroll> {
+    const current = await this.getCurrent();
+
+    if (result === 'won') {
+      this.logger.log(
+        `Bet ${betId} won! Adding ${finalValue.toFixed(2)} to balance`,
+        'BankrollService',
+      );
+      return this.bankrollRepository.addToBalance(current.id, finalValue);
+    } else {
+      this.logger.log(
+        `Bet ${betId} lost! Subtracting ${finalValue.toFixed(2)} from balance`,
+        'BankrollService',
+      );
+      return this.bankrollRepository.subtractFromBalance(current.id, finalValue);
+    }
+  }
+
+  /**
    * Reset bankroll to initial balance
    */
   async reset(): Promise<Bankroll> {

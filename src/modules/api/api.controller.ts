@@ -364,12 +364,13 @@ export class ApiController {
   /**
    * 🎯 Marcar resultado de uma aposta
    * PATCH /api/bets/:id/result
-   * Body: { "result": "won" | "lost", "stake": 100 }
+   * Body: { "result": "won" | "lost", "finalValue": 205.50 }
+   * finalValue = lucro final (green) ou prejuízo final (red)
    */
   @Patch('bets/:id/result')
   async markBetResult(
     @Param('id') id: string,
-    @Body() body: { result: 'won' | 'lost'; stake: number },
+    @Body() body: { result: 'won' | 'lost'; finalValue: number },
   ) {
     try {
       // Buscar a aposta
@@ -382,27 +383,20 @@ export class ApiController {
         };
       }
 
-      // Calcular lucro/prejuízo
-      let profit = 0;
-      if (body.result === 'won') {
-        profit = body.stake * (bet.odd_total - 1);
-      } else {
-        profit = -body.stake;
-      }
+      // O valor final já vem do usuário (lucro ou prejuízo real)
+      const profit = body.result === 'won' ? body.finalValue : -body.finalValue;
 
       // Atualizar aposta no banco
       const updatedBet = await this.betsRepository.update(id, {
         result: body.result as any,
-        stake: body.stake,
         profit: profit,
       });
 
-      // Atualizar bankroll
-      const updatedBankroll = await this.bankrollService.processBetResult(
+      // Atualizar bankroll com o valor real informado
+      const updatedBankroll = await this.bankrollService.processBetResultWithFinalValue(
         id,
         body.result,
-        body.stake,
-        bet.odd_total,
+        body.finalValue,
       );
 
       return {
@@ -411,7 +405,6 @@ export class ApiController {
         bet: {
           id: updatedBet.id,
           result: updatedBet.result,
-          stake: body.stake,
           profit: profit.toFixed(2),
           oddTotal: bet.odd_total,
         },
