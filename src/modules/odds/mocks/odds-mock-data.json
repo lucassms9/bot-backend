@@ -1,0 +1,200 @@
+[
+  {
+    "id": "415aadf5c1b1e11a02cd90d1c70dc4d6",
+    "sport_key": "soccer_brazil_campeonato",
+    "sport_title": "Brazil Série A",
+    "commence_time": "2026-03-14T21:30:00Z",
+    "home_team": "Vitoria",
+    "away_team": "Atletico Mineiro",
+    "bookmakers": [
+      {
+        "key": "betonlineag",
+        "title": "BetOnline.ag",
+        "last_update": "2026-03-14T10:35:01Z",
+        "markets": [
+          {
+            "key": "spreads",
+            "last_update": "2026-03-14T10:35:01Z",
+            "outcomes": [
+              {
+                "name": "Atletico Mineiro",
+                "price": 1.32,
+                "point": 1.5
+              },
+              {
+                "name": "Vitoria",
+                "price": 3.20,
+                "point": -1.5
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "28a4e2d3fb3fca7b53d30fcfaa05288d",
+    "sport_key": "soccer_brazil_campeonato",
+    "sport_title": "Brazil Série A",
+    "commence_time": "2026-03-14T23:30:00Z",
+    "home_team": "Botafogo",
+    "away_team": "Flamengo",
+    "bookmakers": [
+      {
+        "key": "betonlineag",
+        "title": "BetOnline.ag",
+        "last_update": "2026-03-14T10:35:01Z",
+        "markets": [
+          {
+            "key": "spreads",
+            "last_update": "2026-03-14T10:35:01Z",
+            "outcomes": [
+              {
+                "name": "Flamengo",
+                "price": 1.45,
+                "point": 1.0
+              },
+              {
+                "name": "Botafogo",
+                "price": 2.75,
+                "point": -1.0
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "918e33a42fd8c4227ab7f5e992d59cc2",
+    "sport_key": "soccer_brazil_campeonato",
+    "sport_title": "Brazil Série A",
+    "commence_time": "2026-03-15T19:00:00Z",
+    "home_team": "Fluminense",
+    "away_team": "Atletico Paranaense",
+    "bookmakers": [
+      {
+        "key": "betonlineag",
+        "title": "BetOnline.ag",
+        "last_update": "2026-03-14T10:35:01Z",
+        "markets": [
+          {
+            "key": "spreads",
+            "last_update": "2026-03-14T10:35:01Z",
+            "outcomes": [
+              {
+                "name": "Atletico Paranaense",
+                "price": 1.28,
+                "point": 1.5
+              },
+              {
+                "name": "Fluminense",
+                "price": 3.50,
+                "point": -1.5
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "ab88d37f59781b68f4c67cb62a745d87",
+    "sport_key": "soccer_brazil_campeonato",
+    "sport_title": "Brazil Série A",
+    "commence_time": "2026-03-15T19:00:00Z",
+    "home_team": "Internacional",
+    "away_team": "Bahia",
+    "bookmakers": [
+      {
+        "key": "betonlineag",
+        "title": "BetOnline.ag",
+        "last_update": "2026-03-14T10:35:01Z",
+        "markets": [
+          {
+            "key": "spreads",
+            "last_update": "2026-03-14T10:35:01Z",
+            "outcomes": [
+              {
+                "name": "Bahia",
+                "price": 1.50,
+                "point": 1.0
+              },
+              {
+                "name": "Internacional",
+                "price": 2.60,
+                "point": -1.0
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "92a4ef6b5348bad4d5f89afcaf0ac611",
+    "sport_key": "soccer_brazil_campeonato",
+    "sport_title": "Brazil Série A",
+    "commence_time": "2026-03-15T19:00:00Z",
+    "home_team": "Santos",
+    "away_team": "Corinthians",
+    "bookmakers": [
+      {
+        "key": "betonlineag",
+        "title": "BetOnline.ag",
+        "last_update": "2026-03-14T10:35:01Z",
+        "markets": [
+          {
+            "key": "spreads",
+            "last_update": "2026-03-14T10:35:01Z",
+            "outcomes": [
+              {
+                "name": "Corinthians",
+                "price": 1.35,
+                "point": 1.0
+              },
+              {
+                "name": "Santos",
+                "price": 3.10,
+                "point": -1.0
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "f7b0f2496f018478593d9dac8b2a8771",
+    "sport_key": "soccer_brazil_campeonato",
+    "sport_title": "Brazil Série A",
+    "commence_time": "2026-03-15T21:30:00Z",
+    "home_team": "Palmeiras",
+    "away_team": "Mirassol",
+    "bookmakers": [
+      {
+        "key": "betonlineag",
+        "title": "BetOnline.ag",
+        "last_update": "2026-03-14T10:35:01Z",
+        "markets": [
+          {
+            "key": "spreads",
+            "last_update": "2026-03-14T10:35:01Z",
+            "outcomes": [
+              {
+                "name": "Mirassol",
+                "price": 1.40,
+                "point": 1.5
+              },
+              {
+                "name": "Palmeiras",
+                "price": 2.90,
+                "point": -1.5
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]
