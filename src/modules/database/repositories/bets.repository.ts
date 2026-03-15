@@ -281,7 +281,9 @@ export class BetsRepository {
       .from(this.tableName)
       .select('id')
       .eq('user_id', userId)
-      .or(`and(game1_id.eq.${game1Id},game2_id.eq.${game2Id}),and(game1_id.eq.${game2Id},game2_id.eq.${game1Id})`)
+      .or(
+        `and(game1_id.eq.${game1Id},game2_id.eq.${game2Id}),and(game1_id.eq.${game2Id},game2_id.eq.${game1Id})`,
+      )
       .limit(1);
 
     if (error) {
