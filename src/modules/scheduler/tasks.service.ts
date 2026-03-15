@@ -81,9 +81,10 @@ export class TasksService {
       // Step 4: Calculate risk scores and save opportunities
       this.logger.logProcessing(
         'TasksService',
-        'Step 4/4: Calculating risk scores and saving opportunities',
+        'Step 4/6: Calculating risk scores and saving opportunities',
       );
       let savedCount = 0;
+      let skippedCount = 0;
 
       for (const opp of filteredOpportunities) {
         // Ensure event exists
@@ -101,8 +102,8 @@ export class TasksService {
           odd: opp.odd,
         });
 
-        // Save opportunity
-        await this.opportunitiesRepository.create({
+        // Save opportunity (only if doesn't exist)
+        const opportunity = await this.opportunitiesRepository.findOrCreate({
           event_id: opp.eventId,
           team: opp.team,
           handicap: opp.handicap,
@@ -111,10 +112,28 @@ export class TasksService {
           risk_score: riskScore,
         });
 
-        savedCount++;
+        // Check if it was newly created (id will be different from existing)
+        if (opportunity.created_at) {
+          const createdDate = new Date(opportunity.created_at);
+          const now = new Date();
+          const diffSeconds = (now.getTime() - createdDate.getTime()) / 1000;
+
+          if (diffSeconds < 5) {
+            // Newly created (within last 5 seconds)
+            savedCount++;
+          } else {
+            // Already existed
+            skippedCount++;
+          }
+        } else {
+          savedCount++;
+        }
       }
 
-      this.logger.logSuccess('TasksService', `Saved ${savedCount} opportunities to database`);
+      this.logger.logSuccess(
+        'TasksService',
+        `Saved ${savedCount} new opportunities, skipped ${skippedCount} duplicates`,
+      );
 
       // Step 5: Build bet pairs from opportunities
       this.logger.logProcessing('TasksService', 'Step 5/6: Building bet pairs');
@@ -141,6 +160,7 @@ export class TasksService {
       this.logger.log(`Found ${userIds.length} active user(s)`, 'TasksService');
 
       let totalBetsCreated = 0;
+      let totalBetsSkipped = 0;
 
       // Create bets for each user
       for (const userId of userIds) {
@@ -154,8 +174,13 @@ export class TasksService {
             suggested_stake: suggestedStake,
           }));
 
+          // Filter out duplicates before creating
+          const uniquePairs = await this.betsRepository.filterDuplicates(userId, userPairs);
+          const skippedCount = userPairs.length - uniquePairs.length;
+          totalBetsSkipped += skippedCount;
+
           // Create bets for this user (using admin method to bypass RLS)
-          const userBets = await this.betsRepository.createManyAsAdmin(userId, userPairs);
+          const userBets = await this.betsRepository.createManyAsAdmin(userId, uniquePairs);
           totalBetsCreated += userBets.length;
 
           this.logger.log(
@@ -184,6 +209,7 @@ export class TasksService {
       this.logger.log(`Bet pairs built: ${pairs.length}`, 'TasksService');
       this.logger.log(`Active users: ${userIds.length}`, 'TasksService');
       this.logger.log(`Total bets created: ${totalBetsCreated}`, 'TasksService');
+      this.logger.log(`Total bets skipped (duplicates): ${totalBetsSkipped}`, 'TasksService');
       this.logger.log(`Execution time: ${executionTime}s`, 'TasksService');
       this.logger.log('═══════════════════════════════════════', 'TasksService');
     } catch (error) {

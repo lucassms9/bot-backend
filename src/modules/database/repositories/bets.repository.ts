@@ -271,4 +271,46 @@ export class BetsRepository {
     this.logger.logSuccess('BetsRepository', `Bet ${id} updated for user ${userId}`);
     return data;
   }
+
+  /**
+   * Check if bet already exists for user with same games
+   */
+  async existsByGames(userId: string, game1Id: string, game2Id: string): Promise<boolean> {
+    const { data, error } = await this.supabaseService
+      .getServiceRoleClient()
+      .from(this.tableName)
+      .select('id')
+      .eq('user_id', userId)
+      .or(`and(game1_id.eq.${game1Id},game2_id.eq.${game2Id}),and(game1_id.eq.${game2Id},game2_id.eq.${game1Id})`)
+      .limit(1);
+
+    if (error) {
+      this.logger.logError('BetsRepository', 'Error checking existing bet', error);
+      return false;
+    }
+
+    return (data && data.length > 0) || false;
+  }
+
+  /**
+   * Filter out duplicate bets before creating
+   * Returns only new bets that don't exist yet for this user
+   */
+  async filterDuplicates(userId: string, bets: CreateBetDto[]): Promise<CreateBetDto[]> {
+    const uniqueBets: CreateBetDto[] = [];
+
+    for (const bet of bets) {
+      const exists = await this.existsByGames(userId, bet.game1_id, bet.game2_id);
+      if (!exists) {
+        uniqueBets.push(bet);
+      } else {
+        this.logger.log(
+          `Skipping duplicate bet: ${bet.game1_id} + ${bet.game2_id} for user ${userId}`,
+          'BetsRepository',
+        );
+      }
+    }
+
+    return uniqueBets;
+  }
 }

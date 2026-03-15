@@ -67,10 +67,7 @@ export class OpportunitiesRepository {
       throw error;
     }
 
-    this.logger.logSuccess(
-      'OpportunitiesRepository',
-      `${data.length} opportunities created`,
-    );
+    this.logger.logSuccess('OpportunitiesRepository', `${data.length} opportunities created`);
     return data;
   }
 
@@ -182,5 +179,64 @@ export class OpportunitiesRepository {
     }
 
     return count || 0;
+  }
+
+  /**
+   * Find existing opportunity by unique characteristics
+   * Returns null if not found
+   */
+  async findByCharacteristics(
+    eventId: string,
+    team: string,
+    handicap: number,
+    bookmaker: string,
+  ): Promise<Opportunity | null> {
+    this.logger.logDB('OpportunitiesRepository', 'SELECT BY CHARACTERISTICS', this.tableName);
+
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from(this.tableName)
+      .select('*')
+      .eq('event_id', eventId)
+      .eq('team', team)
+      .eq('handicap', handicap)
+      .eq('bookmaker', bookmaker)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        // No rows returned
+        return null;
+      }
+      this.logger.logError('OpportunitiesRepository', 'Error finding by characteristics', error);
+      throw error;
+    }
+
+    return data;
+  }
+
+  /**
+   * Create opportunity only if it doesn't exist
+   * Returns existing or newly created opportunity
+   */
+  async findOrCreate(opportunityDto: CreateOpportunityDto): Promise<Opportunity> {
+    // Check if already exists
+    const existing = await this.findByCharacteristics(
+      opportunityDto.event_id,
+      opportunityDto.team,
+      opportunityDto.handicap,
+      opportunityDto.bookmaker,
+    );
+
+    if (existing) {
+      this.logger.log(
+        `Opportunity already exists: ${opportunityDto.team} ${opportunityDto.handicap}`,
+        'OpportunitiesRepository',
+      );
+      return existing;
+    }
+
+    // Create new
+    return this.create(opportunityDto);
   }
 }
