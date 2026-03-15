@@ -93,6 +93,49 @@ export class OpportunitiesRepository {
   }
 
   /**
+   * Find opportunities by status with event data (for pairing)
+   */
+  async findByStatusWithEventData(status: OpportunityStatus): Promise<any[]> {
+    this.logger.logDB('OpportunitiesRepository', 'SELECT WITH EVENT DATA', this.tableName);
+
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from(this.tableName)
+      .select(
+        `
+        id,
+        event_id,
+        team,
+        handicap,
+        odd,
+        bookmaker,
+        risk_score,
+        status,
+        created_at,
+        events!inner(
+          commence_time,
+          home_team,
+          away_team,
+          league
+        )
+      `,
+      )
+      .eq('status', status)
+      .order('risk_score', { ascending: true });
+
+    if (error) {
+      this.logger.logError(
+        'OpportunitiesRepository',
+        'Error finding by status with event data',
+        error,
+      );
+      throw error;
+    }
+
+    return data || [];
+  }
+
+  /**
    * Update opportunity status
    */
   async updateStatus(id: string, status: OpportunityStatus): Promise<void> {
