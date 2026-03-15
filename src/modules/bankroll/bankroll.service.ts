@@ -86,7 +86,7 @@ export class BankrollService {
   async processBetResultWithFinalValue(
     userId: string,
     betId: string,
-    result: 'won' | 'lost',
+    result: 'won' | 'lost' | 'void',
     finalValue: number,
   ): Promise<Bankroll> {
     const current = await this.getCurrent(userId);
@@ -97,12 +97,20 @@ export class BankrollService {
         'BankrollService',
       );
       return this.bankrollRepository.addToBalance(userId, current.id, finalValue);
-    } else {
+    } else if (result === 'lost') {
       this.logger.log(
         `Bet ${betId} lost! Subtracting ${finalValue.toFixed(2)} from balance`,
         'BankrollService',
       );
       return this.bankrollRepository.subtractFromBalance(userId, current.id, finalValue);
+    } else {
+      // void - stake returned, just return current bankroll without changes
+      this.logger.log(
+        `Bet ${betId} void! Stake ${finalValue.toFixed(2)} returned to balance`,
+        'BankrollService',
+      );
+      // Actually we should add the stake back since it was probably deducted
+      return this.bankrollRepository.addToBalance(userId, current.id, finalValue);
     }
   }
 

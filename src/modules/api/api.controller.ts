@@ -186,10 +186,16 @@ export class ApiController {
       }),
     );
 
-    // Remover nulls e ordenar por data (mais recentes primeiro)
+    // Remover nulls e ordenar por data do primeiro jogo (jogos mais próximos primeiro)
     const valid = enriched
-      .filter((bet): bet is NonNullable<typeof bet> => bet !== null && bet.createdAt !== undefined)
-      .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime());
+      .filter((bet): bet is NonNullable<typeof bet> => {
+        return bet !== null && !!bet.game1?.match?.kickoff;
+      })
+      .sort((a, b) => {
+        const dateA = new Date(a.game1.match.kickoff!).getTime();
+        const dateB = new Date(b.game1.match.kickoff!).getTime();
+        return dateA - dateB; // Ordem crescente (jogos mais próximos primeiro)
+      });
 
     return {
       success: true,
@@ -374,15 +380,15 @@ export class ApiController {
   /**
    * 🎯 Marcar resultado de uma aposta do usuário
    * PATCH /api/bets/:id/result
-   * Body: { "result": "won" | "lost", "finalValue": 205.50 }
-   * finalValue = lucro final (green) ou prejuízo final (red)
+   * Body: { "result": "won" | "lost" | "void", "finalValue": 205.50 }
+   * finalValue = lucro final (green) ou prejuízo final (red) ou stake (void)
    */
   @Patch('bets/:id/result')
   @UseGuards(JwtAuthGuard)
   async markBetResult(
     @CurrentUser() user: any,
     @Param('id') id: string,
-    @Body() body: { result: 'won' | 'lost'; finalValue: number },
+    @Body() body: { result: 'won' | 'lost' | 'void'; finalValue: number },
   ) {
     try {
       // Buscar a aposta do usuário
@@ -395,8 +401,14 @@ export class ApiController {
         };
       }
 
-      // O valor final já vem do usuário (lucro ou prejuízo real)
-      const profit = body.result === 'won' ? body.finalValue : -body.finalValue;
+      // O valor final já vem do usuário (lucro ou prejuízo real ou stake no caso de void)
+      let profit = 0;
+      if (body.result === 'won') {
+        profit = body.finalValue;
+      } else if (body.result === 'lost') {
+        profit = -body.finalValue;
+      }
+      // void = profit 0 (stake returned)
 
       // Atualizar aposta no banco
       const updatedBet = await this.betsRepository.update(user.id, id, {

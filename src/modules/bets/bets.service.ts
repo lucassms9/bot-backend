@@ -94,14 +94,16 @@ export class BetsService {
     won: number;
     lost: number;
     partial: number;
+    void: number;
     totalProfit: number;
   }> {
-    const [total, pending, won, lost, partial, totalProfit] = await Promise.all([
+    const [total, pending, won, lost, partial, voidBets, totalProfit] = await Promise.all([
       this.betsRepository.findAll(userId),
       this.betsRepository.countByResult(userId, BetResult.PENDING),
       this.betsRepository.countByResult(userId, BetResult.WON),
       this.betsRepository.countByResult(userId, BetResult.LOST),
       this.betsRepository.countByResult(userId, BetResult.PARTIAL),
+      this.betsRepository.countByResult(userId, BetResult.VOID),
       this.betsRepository.getTotalProfit(userId),
     ]);
 
@@ -111,6 +113,7 @@ export class BetsService {
       won,
       lost,
       partial,
+      void: voidBets,
       totalProfit,
     };
   }

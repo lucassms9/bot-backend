@@ -101,7 +101,10 @@ export class BetsRepository {
       throw error;
     }
 
-    this.logger.logSuccess('BetsRepository', `${data.length} bets created for user ${userId} (admin)`);
+    this.logger.logSuccess(
+      'BetsRepository',
+      `${data.length} bets created for user ${userId} (admin)`,
+    );
     return data;
   }
 

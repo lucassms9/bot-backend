@@ -90,7 +90,7 @@ CREATE TABLE bets (
     -- Constraints
     CONSTRAINT chk_different_games CHECK (game1_id != game2_id),
     CONSTRAINT chk_odd_total_positive CHECK (odd_total >= 1.0),
-    CONSTRAINT chk_result_valid CHECK (result IN ('pending', 'won', 'lost', 'partial')),
+    CONSTRAINT chk_result_valid CHECK (result IN ('pending', 'won', 'lost', 'partial', 'void')),
     CONSTRAINT fk_bets_user FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
 );
 

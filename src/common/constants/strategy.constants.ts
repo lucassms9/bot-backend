@@ -39,4 +39,5 @@ export enum BetResult {
   WON = 'won',
   LOST = 'lost',
   PARTIAL = 'partial',
+  VOID = 'void', // Bet cancelled/returned - stake returned to bankroll
 }
