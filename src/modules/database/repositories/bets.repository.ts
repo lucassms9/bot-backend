@@ -131,7 +131,7 @@ export class BetsRepository {
   }
 
   /**
-   * Find all bets for specific user
+   * Find all active bets for specific user (excludes EXPIRED)
    */
   async findAll(userId: string): Promise<Bet[]> {
     this.logger.logDB('BetsRepository', 'SELECT ALL', this.tableName);
@@ -141,6 +141,7 @@ export class BetsRepository {
       .from(this.tableName)
       .select('*')
       .eq('user_id', userId)
+      .neq('result', BetResult.EXPIRED)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -292,6 +293,69 @@ export class BetsRepository {
     }
 
     return (data && data.length > 0) || false;
+  }
+
+  /**
+   * Delete a bet owned by a specific user (scoped, respects RLS)
+   */
+  async delete(userId: string, id: string): Promise<void> {
+    this.logger.logDB('BetsRepository', 'DELETE', this.tableName);
+
+    const { error } = await this.supabaseService
+      .getServiceRoleClient()
+      .from(this.tableName)
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId);
+
+    if (error) {
+      this.logger.logError('BetsRepository', 'Error deleting bet', error);
+      throw error;
+    }
+
+    this.logger.logSuccess('BetsRepository', `Bet ${id} deleted for user ${userId}`);
+  }
+
+  /**
+   * Find all PENDING bets across all users (admin, for cron expiry check)
+   */
+  async findAllPendingAsAdmin(): Promise<Pick<Bet, 'id' | 'user_id' | 'game1_id' | 'game2_id'>[]> {
+    this.logger.logDB('BetsRepository', 'SELECT ALL PENDING (ADMIN)', this.tableName);
+
+    const { data, error } = await this.supabaseService
+      .getServiceRoleClient()
+      .from(this.tableName)
+      .select('id, user_id, game1_id, game2_id')
+      .eq('result', BetResult.PENDING);
+
+    if (error) {
+      this.logger.logError('BetsRepository', 'Error finding all pending bets (admin)', error);
+      throw error;
+    }
+
+    return (data || []) as Pick<Bet, 'id' | 'user_id' | 'game1_id' | 'game2_id'>[];
+  }
+
+  /**
+   * Expire multiple bets by ID (admin, bypasses RLS)
+   */
+  async expireManyAsAdmin(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+
+    this.logger.logDB('BetsRepository', 'BULK EXPIRE (ADMIN)', this.tableName);
+
+    const { error } = await this.supabaseService
+      .getServiceRoleClient()
+      .from(this.tableName)
+      .update({ result: BetResult.EXPIRED })
+      .in('id', ids);
+
+    if (error) {
+      this.logger.logError('BetsRepository', 'Error expiring bets (admin)', error);
+      throw error;
+    }
+
+    this.logger.logSuccess('BetsRepository', `${ids.length} bets expired`);
   }
 
   /**

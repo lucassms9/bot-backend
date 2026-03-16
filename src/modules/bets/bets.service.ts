@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { BetsRepository } from '../database/repositories/bets.repository';
+import { OpportunitiesRepository } from '../database/repositories/opportunities.repository';
 import { CreateBetDto, Bet } from '../database/interfaces/bet.interface';
-import { BetResult } from '../../common/constants/strategy.constants';
+import { BetResult, OpportunityStatus } from '../../common/constants/strategy.constants';
 import { BankrollService } from '../bankroll/bankroll.service';
 import { Logger } from '../../utils/logger';
 
@@ -11,6 +12,7 @@ export class BetsService {
 
   constructor(
     private betsRepository: BetsRepository,
+    private opportunitiesRepository: OpportunitiesRepository,
     private bankrollService: BankrollService,
   ) {}
 
@@ -49,6 +51,37 @@ export class BetsService {
     }));
 
     return this.betsRepository.createMany(userId, betsWithStake);
+  }
+
+  /**
+   * Undo a pending bet: delete it and restore its two opportunities to PENDING
+   * so they become available for pairing again.
+   */
+  async undoBet(userId: string, betId: string): Promise<void> {
+    this.logger.logProcessing('BetsService', `Undoing bet ${betId} for user ${userId}`);
+
+    const bet = await this.betsRepository.findById(userId, betId);
+    if (!bet) {
+      throw new NotFoundException(`Bet ${betId} not found for user ${userId}`);
+    }
+
+    if (bet.result !== BetResult.PENDING) {
+      throw new Error('Only pending bets can be undone');
+    }
+
+    // Delete the bet first
+    await this.betsRepository.delete(userId, betId);
+
+    // Restore both opportunities to PENDING so they can be re-paired
+    await this.opportunitiesRepository.updateManyStatus(
+      [bet.game1_id, bet.game2_id],
+      OpportunityStatus.PENDING,
+    );
+
+    this.logger.logSuccess(
+      'BetsService',
+      `Bet ${betId} deleted — opportunities ${bet.game1_id} and ${bet.game2_id} restored to PENDING`,
+    );
   }
 
   /**
@@ -95,15 +128,17 @@ export class BetsService {
     lost: number;
     partial: number;
     void: number;
+    expired: number;
     totalProfit: number;
   }> {
-    const [total, pending, won, lost, partial, voidBets, totalProfit] = await Promise.all([
+    const [total, pending, won, lost, partial, voidBets, expired, totalProfit] = await Promise.all([
       this.betsRepository.findAll(userId),
       this.betsRepository.countByResult(userId, BetResult.PENDING),
       this.betsRepository.countByResult(userId, BetResult.WON),
       this.betsRepository.countByResult(userId, BetResult.LOST),
       this.betsRepository.countByResult(userId, BetResult.PARTIAL),
       this.betsRepository.countByResult(userId, BetResult.VOID),
+      this.betsRepository.countByResult(userId, BetResult.EXPIRED),
       this.betsRepository.getTotalProfit(userId),
     ]);
 
@@ -114,6 +149,7 @@ export class BetsService {
       lost,
       partial,
       void: voidBets,
+      expired,
       totalProfit,
     };
   }

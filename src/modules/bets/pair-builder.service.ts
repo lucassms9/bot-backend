@@ -28,26 +28,60 @@ export class PairBuilderService {
     this.logger.logProcessing('PairBuilderService', 'Building bet pairs with date priority');
 
     // Get pending opportunities with event data (includes commence_time)
-    const opportunities = await this.opportunitiesRepository.findByStatusWithEventData(
+    const allPendingOpportunities = await this.opportunitiesRepository.findByStatusWithEventData(
       OpportunityStatus.PENDING,
     );
+
+    // Today's date at midnight UTC for comparison (YYYY-MM-DD)
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+
+    // Separate stale (event date < today) from valid (today or future)
+    const staleOpportunities = allPendingOpportunities.filter((opp) => {
+      const eventDateStr = new Date(opp.events.commence_time).toISOString().split('T')[0];
+      return eventDateStr < todayStr;
+    });
+
+    // Expire stale opportunities so they are never used again
+    if (staleOpportunities.length > 0) {
+      const staleIds = staleOpportunities.map((opp) => opp.id).filter(Boolean) as string[];
+      this.logger.logWarning(
+        'PairBuilderService',
+        `Expiring ${staleIds.length} stale PENDING opportunities from previous days`,
+      );
+      await this.opportunitiesRepository.updateManyStatus(staleIds, OpportunityStatus.DISCARDED);
+    }
+
+    // Only operate on valid opportunities (event date >= today AND status PENDING)
+    const opportunities = allPendingOpportunities.filter((opp) => {
+      // Exclude already-used (PAIRED) opportunities — defensive check
+      if (opp.status !== OpportunityStatus.PENDING) {
+        return false;
+      }
+      const eventDateStr = new Date(opp.events.commence_time).toISOString().split('T')[0];
+      return eventDateStr >= todayStr;
+    });
 
     if (opportunities.length < 2) {
       this.logger.logWarning(
         'PairBuilderService',
-        `Not enough opportunities to pair (found ${opportunities.length})`,
+        `Not enough valid opportunities to pair (found ${opportunities.length}, ${staleOpportunities.length} expired as stale)`,
       );
       return [];
     }
 
-    this.logger.log(`Found ${opportunities.length} pending opportunities`, 'PairBuilderService');
+    this.logger.log(
+      `Found ${opportunities.length} valid pending opportunities (today or future)`,
+      'PairBuilderService',
+    );
 
     // Group opportunities by date (day)
     const groupedByDate = this.groupByDate(opportunities);
     this.logger.log(`Grouped into ${groupedByDate.size} different dates`, 'PairBuilderService');
 
     const pairs: CreateBetDto[] = [];
-    const pairedIds: Set<string> = new Set();
+    const pairedIds: Set<string> = new Set(); // opportunity IDs already used
+    const pairedEventIds: Set<string> = new Set(); // event IDs already used (1 per event)
     let sameDayPairs = 0;
     let crossDayPairs = 0;
 
@@ -59,17 +93,19 @@ export class PairBuilderService {
 
       for (let i = 0; i < opps.length - 1; i++) {
         const game1 = opps[i];
-        if (!game1.id || pairedIds.has(game1.id)) continue;
+        if (!game1.id || pairedIds.has(game1.id) || pairedEventIds.has(game1.event_id)) continue;
 
         for (let j = i + 1; j < opps.length; j++) {
           const game2 = opps[j];
-          if (!game2.id || pairedIds.has(game2.id)) continue;
+          if (!game2.id || pairedIds.has(game2.id) || pairedEventIds.has(game2.event_id)) continue;
 
           if (this.isValidPair(game1, game2)) {
             const pair = this.createPair(game1, game2);
             pairs.push(pair);
             pairedIds.add(game1.id);
             pairedIds.add(game2.id);
+            pairedEventIds.add(game1.event_id);
+            pairedEventIds.add(game2.event_id);
             sameDayPairs++;
 
             this.logger.debug(
@@ -84,7 +120,9 @@ export class PairBuilderService {
     }
 
     // Phase 2: Pair remaining opportunities by date proximity
-    const unpaired = opportunities.filter((opp) => opp.id && !pairedIds.has(opp.id));
+    const unpaired = opportunities.filter(
+      (opp) => opp.id && !pairedIds.has(opp.id) && !pairedEventIds.has(opp.event_id),
+    );
 
     if (unpaired.length >= 2) {
       this.logger.log(
@@ -101,14 +139,14 @@ export class PairBuilderService {
 
       for (let i = 0; i < unpaired.length - 1; i++) {
         const game1 = unpaired[i];
-        if (!game1.id || pairedIds.has(game1.id)) continue;
+        if (!game1.id || pairedIds.has(game1.id) || pairedEventIds.has(game1.event_id)) continue;
 
         let bestMatch: any = null;
         let smallestDateDiff = Infinity;
 
         for (let j = i + 1; j < unpaired.length; j++) {
           const game2 = unpaired[j];
-          if (!game2.id || pairedIds.has(game2.id)) continue;
+          if (!game2.id || pairedIds.has(game2.id) || pairedEventIds.has(game2.event_id)) continue;
 
           if (this.isValidPair(game1, game2)) {
             const dateDiff = Math.abs(
@@ -128,6 +166,8 @@ export class PairBuilderService {
           pairs.push(pair);
           pairedIds.add(game1.id!);
           pairedIds.add(bestMatch.id!);
+          pairedEventIds.add(game1.event_id);
+          pairedEventIds.add(bestMatch.event_id);
           crossDayPairs++;
 
           const daysDiff = (smallestDateDiff / (1000 * 60 * 60 * 24)).toFixed(1);

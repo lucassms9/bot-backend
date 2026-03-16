@@ -1,4 +1,14 @@
-import { Controller, Get, Param, Query, Post, Patch, Body, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  Query,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  UseGuards,
+} from '@nestjs/common';
 import { OpportunitiesRepository } from '../database/repositories/opportunities.repository';
 import { BetsRepository } from '../database/repositories/bets.repository';
 import { EventsRepository } from '../database/repositories/events.repository';
@@ -20,6 +30,55 @@ export class ApiController {
     private bankrollService: BankrollService,
     private pairBuilderService: PairBuilderService,
   ) {}
+
+  /**
+   * 🗑️ Desfazer uma aposta pendente do usuário
+   * DELETE /api/bets/:id
+   * Deleta a aposta e devolve as oportunidades para o estado PENDING
+   */
+  @Delete('bets/:id')
+  @UseGuards(JwtAuthGuard)
+  async undoBet(@CurrentUser() user: any, @Param('id') id: string) {
+    try {
+      const bet = await this.betsRepository.findById(user.id, id);
+      if (!bet) {
+        return {
+          success: false,
+          error: 'Bet not found',
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      if (bet.result !== 'pending') {
+        return {
+          success: false,
+          error: 'Only pending bets can be undone',
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      // Delete bet
+      await this.betsRepository.delete(user.id, id);
+
+      // Restore opportunities to PENDING
+      await this.opportunitiesRepository.updateManyStatus(
+        [bet.game1_id, bet.game2_id],
+        OpportunityStatus.PENDING,
+      );
+
+      return {
+        success: true,
+        message: 'Bet removed and opportunities restored',
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
 
   /**
    * 📋 Listar todas as oportunidades (apostas individuais)
@@ -75,8 +134,18 @@ export class ApiController {
       }),
     );
 
-    // Ordenar por risk score (menor primeiro)
-    const sorted = enriched.sort((a, b) => a.risk.score - b.risk.score);
+    // Deduplicate by (event_id, team, handicap) — keep the best odd per combination
+    const bestByKey = new Map<string, (typeof enriched)[number]>();
+    for (const opp of enriched) {
+      const key = `${opp.match.eventId}|${opp.bet.team}|${opp.bet.handicap}`;
+      const existing = bestByKey.get(key);
+      if (!existing || opp.bet.odd > existing.bet.odd) {
+        bestByKey.set(key, opp);
+      }
+    }
+
+    // Sort by risk score (lowest first)
+    const sorted = Array.from(bestByKey.values()).sort((a, b) => a.risk.score - b.risk.score);
 
     return {
       success: true,
@@ -378,6 +447,47 @@ export class ApiController {
   }
 
   /**
+   * ▶️ Marcar uma aposta como em andamento (usuário confirmou que apostou)
+   * PATCH /api/bets/:id/start
+   */
+  @Patch('bets/:id/start')
+  @UseGuards(JwtAuthGuard)
+  async startBet(@CurrentUser() user: any, @Param('id') id: string) {
+    try {
+      const bet = await this.betsRepository.findById(user.id, id);
+      if (!bet) {
+        return {
+          success: false,
+          error: 'Bet not found',
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      if (bet.result !== 'pending') {
+        return {
+          success: false,
+          error: 'Only pending bets can be started',
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      await this.betsRepository.update(user.id, id, { result: 'in_progress' as any });
+
+      return {
+        success: true,
+        message: 'Bet marked as in progress',
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  /**
    * 🎯 Marcar resultado de uma aposta do usuário
    * PATCH /api/bets/:id/result
    * Body: { "result": "won" | "lost" | "void", "finalValue": 205.50 }
@@ -401,7 +511,13 @@ export class ApiController {
         };
       }
 
-      // O valor final já vem do usuário (lucro ou prejuízo real ou stake no caso de void)
+      if (bet.result !== 'pending' && bet.result !== 'in_progress') {
+        return {
+          success: false,
+          error: 'Only pending or in-progress bets can be settled',
+          timestamp: new Date().toISOString(),
+        };
+      }
       let profit = 0;
       if (body.result === 'won') {
         profit = body.finalValue;
@@ -449,7 +565,104 @@ export class ApiController {
   }
 
   /**
-   * 🎰 Criar duplas de apostas automaticamente para o usuário
+   * � Criar uma dupla manualmente a partir de 2 oportunidades selecionadas
+   * POST /api/bets/create-from-opportunities
+   * Body: { opportunity1Id: string, opportunity2Id: string }
+   */
+  @Post('bets/create-from-opportunities')
+  @UseGuards(JwtAuthGuard)
+  async createBetFromOpportunities(
+    @CurrentUser() user: any,
+    @Body() body: { opportunity1Id: string; opportunity2Id: string },
+  ) {
+    try {
+      const { opportunity1Id, opportunity2Id } = body;
+
+      if (!opportunity1Id || !opportunity2Id) {
+        return {
+          success: false,
+          error: 'Both opportunity1Id and opportunity2Id are required',
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      if (opportunity1Id === opportunity2Id) {
+        return {
+          success: false,
+          error: 'Cannot pair an opportunity with itself',
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      const [opp1, opp2] = await Promise.all([
+        this.opportunitiesRepository.findById(opportunity1Id),
+        this.opportunitiesRepository.findById(opportunity2Id),
+      ]);
+
+      if (!opp1 || !opp2) {
+        return {
+          success: false,
+          error: 'One or both opportunities not found',
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      if (opp1.event_id === opp2.event_id) {
+        return {
+          success: false,
+          error: 'Cannot pair two opportunities from the same event',
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      // Check for duplicate bet
+      const alreadyExists = await this.betsRepository.existsByGames(user.id, opp1.id!, opp2.id!);
+      if (alreadyExists) {
+        return {
+          success: false,
+          error: 'A bet with these two opportunities already exists',
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      const suggestedStake = await this.bankrollService.getSuggestedStake(user.id);
+
+      const bet = await this.betsRepository.create(user.id, {
+        game1_id: opp1.id!,
+        game2_id: opp2.id!,
+        odd_total: Math.round(opp1.odd * opp2.odd * 100) / 100,
+        risk_total: Math.round((opp1.risk_score + opp2.risk_score) * 100) / 100,
+        suggested_stake: suggestedStake,
+      });
+
+      // Mark both opportunities as PAIRED
+      await this.opportunitiesRepository.updateManyStatus(
+        [opp1.id!, opp2.id!],
+        OpportunityStatus.PAIRED,
+      );
+
+      return {
+        success: true,
+        message: 'Bet created successfully',
+        bet: {
+          id: bet.id,
+          oddTotal: bet.odd_total,
+          riskTotal: bet.risk_total,
+          suggestedStake: bet.suggested_stake,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  /**
+   * �🎰 Criar duplas de apostas automaticamente para o usuário
    * POST /api/bets/create-pairs
    * Cria pares de apostas baseado nas oportunidades disponíveis
    */

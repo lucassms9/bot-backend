@@ -36,8 +36,10 @@ export enum OpportunityStatus {
  */
 export enum BetResult {
   PENDING = 'pending',
+  IN_PROGRESS = 'in_progress', // User confirmed placing the bet — waiting for match result
   WON = 'won',
   LOST = 'lost',
   PARTIAL = 'partial',
   VOID = 'void', // Bet cancelled/returned - stake returned to bankroll
+  EXPIRED = 'expired', // Bet never settled and event date has already passed
 }

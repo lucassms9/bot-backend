@@ -259,6 +259,42 @@ export class OpportunitiesRepository {
   }
 
   /**
+   * Find opportunities by IDs and include their event's commence_time
+   * Used by the cron to detect stale open bets
+   */
+  async findByIdsWithEventData(ids: string[]): Promise<any[]> {
+    if (ids.length === 0) return [];
+
+    this.logger.logDB('OpportunitiesRepository', 'SELECT BY IDS WITH EVENT DATA', this.tableName);
+
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from(this.tableName)
+      .select(
+        `
+        id,
+        event_id,
+        status,
+        events!inner(
+          commence_time
+        )
+      `,
+      )
+      .in('id', ids);
+
+    if (error) {
+      this.logger.logError(
+        'OpportunitiesRepository',
+        'Error finding by IDs with event data',
+        error,
+      );
+      throw error;
+    }
+
+    return data || [];
+  }
+
+  /**
    * Create opportunity only if it doesn't exist
    * Returns existing or newly created opportunity
    */

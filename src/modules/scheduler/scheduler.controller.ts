@@ -37,6 +37,34 @@ export class SchedulerController {
   }
 
   /**
+   * 🎯 Gera apostas a partir das oportunidades PENDING existentes (sem buscar odds novamente)
+   */
+  @Post('generate-bets')
+  async generateBets() {
+    this.logger.log('🎯 Manual bet generation triggered via API', 'SchedulerController');
+
+    try {
+      const result = await this.tasksService.generateBetsManually();
+
+      return {
+        success: true,
+        message: 'Bet generation completed successfully',
+        data: result,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error: any) {
+      this.logger.logError('SchedulerController', 'Error in manual bet generation', error);
+
+      return {
+        success: false,
+        message: error.message || 'Bet generation failed',
+        error: error.toString(),
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  /**
    * 📊 Health check do scheduler
    */
   @Get('status')
