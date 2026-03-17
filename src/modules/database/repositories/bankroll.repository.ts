@@ -160,7 +160,7 @@ export class BankrollRepository {
   }
 
   /**
-   * Reset bankroll to initial balance
+   * Reset bankroll to initial balance (revert to original initial_balance)
    */
   async reset(userId: string, id: string): Promise<Bankroll> {
     const current = await this.getCurrent(userId);
@@ -169,6 +169,47 @@ export class BankrollRepository {
     }
 
     return this.updateBalance(userId, id, current.initial_balance);
+  }
+
+  /**
+   * Reset bankroll with a new starting balance.
+   * Updates BOTH initial_balance and current_balance so profit/loss resets to zero.
+   */
+  async resetToNewBalance(
+    userId: string,
+    id: string,
+    newBalance: number,
+    currency?: string,
+    stakePercentage?: number,
+  ): Promise<Bankroll> {
+    const updates: Record<string, unknown> = {
+      initial_balance: newBalance,
+      current_balance: newBalance,
+      updated_at: new Date().toISOString(),
+    };
+    if (currency) updates.currency = currency;
+    if (stakePercentage !== undefined) updates.stake_percentage = stakePercentage;
+
+    const { data, error } = await this.supabase
+      .getServiceRoleClient()
+      .from('bankroll')
+      .update(updates)
+      .eq('id', id)
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error) {
+      this.logger.error(`Error resetting bankroll: ${error.message}`, 'BankrollRepository');
+      throw error;
+    }
+
+    this.logger.log(
+      `Bankroll reset for user ${userId}: new balance = ${newBalance}`,
+      'BankrollRepository',
+    );
+
+    return data as Bankroll;
   }
 
   /**

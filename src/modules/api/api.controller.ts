@@ -472,6 +472,46 @@ export class ApiController {
   }
 
   /**
+   * 🔄 Resetar banca para um novo saldo inicial (zera lucro/prejuízo)
+   * PATCH /api/bankroll/reset
+   * Body: { "new_balance": 1000, "currency": "BRL", "stake_percentage": 10 }
+   */
+  @Patch('bankroll/reset')
+  @UseGuards(JwtAuthGuard)
+  async resetBankroll(
+    @CurrentUser() user: any,
+    @Body() body: { new_balance: number; currency?: string; stake_percentage?: number },
+  ) {
+    try {
+      const bankroll = await this.bankrollService.resetToNewBalance(
+        user.id,
+        body.new_balance,
+        body.currency,
+        body.stake_percentage,
+      );
+
+      return {
+        success: true,
+        message: 'Banca resetada com sucesso',
+        bankroll: {
+          id: bankroll.id,
+          currentBalance: bankroll.current_balance,
+          initialBalance: bankroll.initial_balance,
+          currency: bankroll.currency,
+          stakePercentage: bankroll.stake_percentage,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  /**
    * ▶️ Marcar uma aposta como em andamento (usuário confirmou que apostou)
    * PATCH /api/bets/:id/start
    */

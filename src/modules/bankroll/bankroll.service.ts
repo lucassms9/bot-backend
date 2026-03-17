@@ -29,12 +29,39 @@ export class BankrollService {
     const existing = await this.bankrollRepository.getCurrent(userId);
 
     if (existing) {
-      // Update existing
-      return this.bankrollRepository.updateBalance(userId, existing.id, dto.initial_balance);
+      // Update existing — always update both initial_balance and current_balance so
+      // manually editing the balance never creates fake profit/loss entries.
+      return this.bankrollRepository.resetToNewBalance(
+        userId,
+        existing.id,
+        dto.initial_balance,
+        dto.currency,
+        dto.stake_percentage,
+      );
     }
 
     // Create new
     return this.bankrollRepository.create(userId, dto);
+  }
+
+  /**
+   * Reset bankroll to a new starting balance (clears profit/loss history).
+   * Both initial_balance and current_balance are set to the new value.
+   */
+  async resetToNewBalance(
+    userId: string,
+    newBalance: number,
+    currency?: string,
+    stakePercentage?: number,
+  ): Promise<Bankroll> {
+    const current = await this.getCurrent(userId);
+    return this.bankrollRepository.resetToNewBalance(
+      userId,
+      current.id,
+      newBalance,
+      currency,
+      stakePercentage,
+    );
   }
 
   /**
