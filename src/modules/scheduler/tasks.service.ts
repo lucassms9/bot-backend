@@ -10,6 +10,7 @@ import { BankrollRepository } from '../database/repositories/bankroll.repository
 import { BetsRepository } from '../database/repositories/bets.repository';
 import { EventsRepository } from '../database/repositories/events.repository';
 import { OpportunitiesRepository } from '../database/repositories/opportunities.repository';
+import { UserOpportunitiesRepository } from '../database/repositories/user-opportunities.repository';
 import { Logger } from '../../utils/logger';
 
 @Injectable()
@@ -28,6 +29,7 @@ export class TasksService {
     private betsRepository: BetsRepository,
     private eventsRepository: EventsRepository,
     private opportunitiesRepository: OpportunitiesRepository,
+    private userOpportunitiesRepository: UserOpportunitiesRepository,
   ) {}
 
   /**
@@ -97,13 +99,16 @@ export class TasksService {
         return;
       }
 
-      // Step 4: Calculate risk scores and save opportunities
+      // Step 4: Calculate risk scores, save opportunities, populate user_opportunities
       this.logger.logProcessing(
         'TasksService',
         'Step 4/6: Calculating risk scores and saving opportunities',
       );
       let savedCount = 0;
       let skippedCount = 0;
+
+      // Get all users with bankroll (needed to populate user_opportunities)
+      const allUserIds = await this.bankrollRepository.getAllUserIds();
 
       for (const opp of filteredOpportunities) {
         // Ensure event exists
@@ -131,21 +136,26 @@ export class TasksService {
           risk_score: riskScore,
         });
 
-        // Check if it was newly created (id will be different from existing)
+        // Check if it was newly created (within last 5 seconds)
+        let isNew = false;
         if (opportunity.created_at) {
-          const createdDate = new Date(opportunity.created_at);
-          const now = new Date();
-          const diffSeconds = (now.getTime() - createdDate.getTime()) / 1000;
+          const diffSeconds = (Date.now() - new Date(opportunity.created_at).getTime()) / 1000;
+          isNew = diffSeconds < 5;
+        } else {
+          isNew = true;
+        }
 
-          if (diffSeconds < 5) {
-            // Newly created (within last 5 seconds)
-            savedCount++;
-          } else {
-            // Already existed
-            skippedCount++;
+        if (isNew) {
+          savedCount++;
+          // New opportunity → register for all existing users as pending
+          if (allUserIds.length > 0 && opportunity.id) {
+            await this.userOpportunitiesRepository.addOpportunityForUsers(
+              opportunity.id,
+              allUserIds,
+            );
           }
         } else {
-          savedCount++;
+          skippedCount++;
         }
       }
 
@@ -154,51 +164,38 @@ export class TasksService {
         `Saved ${savedCount} new opportunities, skipped ${skippedCount} duplicates`,
       );
 
-      // Step 5: Build bet pairs from opportunities
-      this.logger.logProcessing('TasksService', 'Step 5/6: Building bet pairs');
-      const pairs = await this.pairBuilderService.buildPairs();
+      // Step 5 & 6: Build pairs PER USER and create bets
+      this.logger.logProcessing(
+        'TasksService',
+        'Step 5-6/6: Building pairs and creating bets per user',
+      );
 
-      if (pairs.length === 0) {
-        this.logger.logWarning('TasksService', 'No pairs could be built from opportunities');
-        return;
-      }
-
-      this.logger.logSuccess('TasksService', `Built ${pairs.length} bet pairs`);
-
-      // Step 6: Create bets for all users
-      this.logger.logProcessing('TasksService', 'Step 6/6: Creating bets for all users');
-
-      // Get all users with bankroll
-      const userIds = await this.bankrollRepository.getAllUserIds();
-
-      if (userIds.length === 0) {
+      if (allUserIds.length === 0) {
         this.logger.logWarning('TasksService', 'No users with bankroll configured');
         return;
       }
 
-      this.logger.log(`Found ${userIds.length} active user(s)`, 'TasksService');
+      this.logger.log(`Found ${allUserIds.length} active user(s)`, 'TasksService');
 
       let totalBetsCreated = 0;
       let totalBetsSkipped = 0;
+      let totalPairsBuilt = 0;
 
-      // Create bets for each user
-      for (const userId of userIds) {
+      for (const userId of allUserIds) {
         try {
-          // Get user's suggested stake (using admin method to bypass RLS)
+          const pairs = await this.pairBuilderService.buildPairsForUser(userId);
+          totalPairsBuilt += pairs.length;
+
+          if (pairs.length === 0) {
+            this.logger.log(`No new pairs for user ${userId}`, 'TasksService');
+            continue;
+          }
+
           const suggestedStake = await this.bankrollRepository.getSuggestedStakeAsAdmin(userId);
-
-          // Add suggested_stake to pairs
-          const userPairs = pairs.map((pair) => ({
-            ...pair,
-            suggested_stake: suggestedStake,
-          }));
-
-          // Filter out duplicates before creating
+          const userPairs = pairs.map((p) => ({ ...p, suggested_stake: suggestedStake }));
           const uniquePairs = await this.betsRepository.filterDuplicates(userId, userPairs);
-          const skippedCount = userPairs.length - uniquePairs.length;
-          totalBetsSkipped += skippedCount;
+          totalBetsSkipped += userPairs.length - uniquePairs.length;
 
-          // Create bets for this user (using admin method to bypass RLS)
           const userBets = await this.betsRepository.createManyAsAdmin(userId, uniquePairs);
           totalBetsCreated += userBets.length;
 
@@ -207,8 +204,7 @@ export class TasksService {
             'TasksService',
           );
         } catch (error) {
-          this.logger.logError('TasksService', `Error creating bets for user ${userId}`, error);
-          // Continue with other users
+          this.logger.logError('TasksService', `Error processing user ${userId}`, error);
         }
       }
 
@@ -225,8 +221,8 @@ export class TasksService {
         'TasksService',
       );
       this.logger.log(`Opportunities saved: ${savedCount}`, 'TasksService');
-      this.logger.log(`Bet pairs built: ${pairs.length}`, 'TasksService');
-      this.logger.log(`Active users: ${userIds.length}`, 'TasksService');
+      this.logger.log(`Total pairs built: ${totalPairsBuilt}`, 'TasksService');
+      this.logger.log(`Active users: ${allUserIds.length}`, 'TasksService');
       this.logger.log(`Total bets created: ${totalBetsCreated}`, 'TasksService');
       this.logger.log(`Total bets skipped (duplicates): ${totalBetsSkipped}`, 'TasksService');
       this.logger.log(`Execution time: ${executionTime}s`, 'TasksService');
@@ -252,9 +248,8 @@ export class TasksService {
   }
 
   /**
-   * Re-generate bets from existing PENDING opportunities (skips API fetch).
-   * Useful when you just want to re-pair and re-distribute bets without
-   * re-fetching odds from the external API.
+   * Re-generate bets from existing user_opportunities (skips API fetch).
+   * Runs pairing per user, skipping already-paired opportunities.
    */
   async generateBetsManually(): Promise<{
     pairsBuilt: number;
@@ -268,13 +263,6 @@ export class TasksService {
 
     const startTime = Date.now();
 
-    // Step 1: Build pairs from existing PENDING opportunities
-    this.logger.logProcessing(
-      'TasksService',
-      'Step 1/2: Building bet pairs from PENDING opportunities',
-    );
-
-    // Expire stale open bets before building new pairs
     try {
       const expiredCount = await this.expireStaleOpenBets();
       if (expiredCount > 0) {
@@ -287,37 +275,26 @@ export class TasksService {
       this.logger.logError('TasksService', 'Error expiring stale bets (non-blocking)', expireError);
     }
 
-    const pairs = await this.pairBuilderService.buildPairs();
-
-    if (pairs.length === 0) {
-      this.logger.logWarning('TasksService', 'No pairs could be built from existing opportunities');
-      return { pairsBuilt: 0, betsCreated: 0, betsSkipped: 0, usersProcessed: 0 };
-    }
-
-    this.logger.logSuccess('TasksService', `Built ${pairs.length} bet pairs`);
-
-    // Step 2: Create bets for all users
-    this.logger.logProcessing('TasksService', 'Step 2/2: Creating bets for all users');
-
     const userIds = await this.bankrollRepository.getAllUserIds();
 
     if (userIds.length === 0) {
       this.logger.logWarning('TasksService', 'No users with bankroll configured');
-      return { pairsBuilt: pairs.length, betsCreated: 0, betsSkipped: 0, usersProcessed: 0 };
+      return { pairsBuilt: 0, betsCreated: 0, betsSkipped: 0, usersProcessed: 0 };
     }
 
+    let totalPairsBuilt = 0;
     let totalBetsCreated = 0;
     let totalBetsSkipped = 0;
 
     for (const userId of userIds) {
       try {
+        const pairs = await this.pairBuilderService.buildPairsForUser(userId);
+        totalPairsBuilt += pairs.length;
+
+        if (pairs.length === 0) continue;
+
         const suggestedStake = await this.bankrollRepository.getSuggestedStakeAsAdmin(userId);
-
-        const userPairs = pairs.map((pair) => ({
-          ...pair,
-          suggested_stake: suggestedStake,
-        }));
-
+        const userPairs = pairs.map((p) => ({ ...p, suggested_stake: suggestedStake }));
         const uniquePairs = await this.betsRepository.filterDuplicates(userId, userPairs);
         totalBetsSkipped += userPairs.length - uniquePairs.length;
 
@@ -337,12 +314,12 @@ export class TasksService {
     this.logger.log('═══════════════════════════════════════', 'TasksService');
     this.logger.logSuccess(
       'TasksService',
-      `Bet generation done — ${pairs.length} pairs, ${totalBetsCreated} bets created, ${totalBetsSkipped} skipped (${executionTime}s)`,
+      `Bet generation done — ${totalPairsBuilt} pairs, ${totalBetsCreated} bets created, ${totalBetsSkipped} skipped (${executionTime}s)`,
     );
     this.logger.log('═══════════════════════════════════════', 'TasksService');
 
     return {
-      pairsBuilt: pairs.length,
+      pairsBuilt: totalPairsBuilt,
       betsCreated: totalBetsCreated,
       betsSkipped: totalBetsSkipped,
       usersProcessed: userIds.length,
@@ -350,45 +327,50 @@ export class TasksService {
   }
 
   /**
-   * Generate bets for a newly onboarded user from the current active PENDING bet pairs.
-   * Called right after the user completes onboarding (bankroll setup).
-   * Only uses pairs that are still PENDING (valid, not yet settled) so stale pairs
-   * are never assigned to the new user.
+   * Generate bets for a newly onboarded user.
+   * 1. Populate user_opportunities with ALL active (future) opportunities as pending.
+   * 2. Run pairing for this user using their fresh user_opportunities.
+   * This is completely independent of what status other users' opportunities have.
    */
   async generateBetsForNewUser(userId: string): Promise<{ betsCreated: number }> {
     this.logger.log(`Generating bets for new user ${userId}`, 'TasksService');
 
-    // Fetch all unique PENDING pairs across existing users
-    const existingPairs = await this.betsRepository.findDistinctPendingPairsAsAdmin();
+    // 1. Fetch all active global opportunities (status=pending AND future event)
+    const activeOpportunities = await this.opportunitiesRepository.findActiveWithEventData();
 
-    if (existingPairs.length === 0) {
+    if (activeOpportunities.length === 0) {
       this.logger.logWarning(
         'TasksService',
-        `No active PENDING pairs found to assign to new user ${userId}`,
+        `No active opportunities found for new user ${userId}`,
       );
       return { betsCreated: 0 };
     }
 
-    // Get the new user's suggested stake (based on their bankroll)
-    const suggestedStake = await this.bankrollRepository.getSuggestedStakeAsAdmin(userId);
+    // 2. Create user_opportunities rows for this user (all as pending)
+    const opportunityIds = activeOpportunities.map((o: any) => o.id).filter(Boolean) as string[];
 
-    const pairsWithStake: import('../database/interfaces/bet.interface').CreateBetDto[] =
-      existingPairs.map((pair) => ({
-        game1_id: pair.game1_id,
-        game2_id: pair.game2_id,
-        odd_total: pair.odd_total,
-        risk_total: pair.risk_total,
-        suggested_stake: suggestedStake,
-      }));
+    await this.userOpportunitiesRepository.createManyForUser(userId, opportunityIds, 'pending');
 
-    // Safety: skip any pair that already exists for this user
-    const uniquePairs = await this.betsRepository.filterDuplicates(userId, pairsWithStake);
+    this.logger.log(
+      `Bootstrapped ${opportunityIds.length} user_opportunities for new user ${userId}`,
+      'TasksService',
+    );
 
-    if (uniquePairs.length === 0) {
-      this.logger.logWarning('TasksService', `All pairs already exist for user ${userId}`);
+    // 3. Run pairing for this user (uses user_opportunities, fully isolated)
+    const pairs = await this.pairBuilderService.buildPairsForUser(userId);
+
+    if (pairs.length === 0) {
+      this.logger.logWarning(
+        'TasksService',
+        `No pairs could be built for new user ${userId} (${opportunityIds.length} opportunities available)`,
+      );
       return { betsCreated: 0 };
     }
 
+    // 4. Create bets
+    const suggestedStake = await this.bankrollRepository.getSuggestedStakeAsAdmin(userId);
+    const pairsWithStake = pairs.map((p) => ({ ...p, suggested_stake: suggestedStake }));
+    const uniquePairs = await this.betsRepository.filterDuplicates(userId, pairsWithStake);
     const created = await this.betsRepository.createManyAsAdmin(userId, uniquePairs);
 
     this.logger.logSuccess(

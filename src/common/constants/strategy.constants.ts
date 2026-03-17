@@ -23,9 +23,18 @@ export const STRATEGY_CONFIG = {
 } as const;
 
 /**
- * Opportunity status types
+ * Opportunity status types (global / system level)
+ * PAIRED has moved to user_opportunities — per-user status is tracked there.
  */
 export enum OpportunityStatus {
+  PENDING = 'pending',
+  DISCARDED = 'discarded',
+}
+
+/**
+ * Per-user opportunity status (user_opportunities table)
+ */
+export enum UserOpportunityStatus {
   PENDING = 'pending',
   PAIRED = 'paired',
   DISCARDED = 'discarded',

@@ -4,6 +4,7 @@ import { EventsRepository } from './repositories/events.repository';
 import { OpportunitiesRepository } from './repositories/opportunities.repository';
 import { BetsRepository } from './repositories/bets.repository';
 import { BankrollRepository } from './repositories/bankroll.repository';
+import { UserOpportunitiesRepository } from './repositories/user-opportunities.repository';
 
 @Global()
 @Module({
@@ -13,6 +14,7 @@ import { BankrollRepository } from './repositories/bankroll.repository';
     OpportunitiesRepository,
     BetsRepository,
     BankrollRepository,
+    UserOpportunitiesRepository,
   ],
   exports: [
     SupabaseService,
@@ -20,6 +22,7 @@ import { BankrollRepository } from './repositories/bankroll.repository';
     OpportunitiesRepository,
     BetsRepository,
     BankrollRepository,
+    UserOpportunitiesRepository,
   ],
 })
 export class DatabaseModule {}

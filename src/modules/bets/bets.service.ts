@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { BetsRepository } from '../database/repositories/bets.repository';
 import { OpportunitiesRepository } from '../database/repositories/opportunities.repository';
+import { UserOpportunitiesRepository } from '../database/repositories/user-opportunities.repository';
 import { CreateBetDto, Bet } from '../database/interfaces/bet.interface';
-import { BetResult, OpportunityStatus } from '../../common/constants/strategy.constants';
+import { BetResult } from '../../common/constants/strategy.constants';
 import { BankrollService } from '../bankroll/bankroll.service';
 import { Logger } from '../../utils/logger';
 
@@ -13,6 +14,7 @@ export class BetsService {
   constructor(
     private betsRepository: BetsRepository,
     private opportunitiesRepository: OpportunitiesRepository,
+    private userOpportunitiesRepository: UserOpportunitiesRepository,
     private bankrollService: BankrollService,
   ) {}
 
@@ -72,15 +74,16 @@ export class BetsService {
     // Delete the bet first
     await this.betsRepository.delete(userId, betId);
 
-    // Restore both opportunities to PENDING so they can be re-paired
-    await this.opportunitiesRepository.updateManyStatus(
-      [bet.game1_id, bet.game2_id],
-      OpportunityStatus.PENDING,
-    );
+    // Restore both opportunities to PENDING in the user's user_opportunities
+    // (not globally — other users' states are unaffected)
+    await this.userOpportunitiesRepository.restoreToPendingForUser(userId, [
+      bet.game1_id,
+      bet.game2_id,
+    ]);
 
     this.logger.logSuccess(
       'BetsService',
-      `Bet ${betId} deleted — opportunities ${bet.game1_id} and ${bet.game2_id} restored to PENDING`,
+      `Bet ${betId} deleted — user_opportunities for ${bet.game1_id} and ${bet.game2_id} restored to pending for user ${userId}`,
     );
   }
 

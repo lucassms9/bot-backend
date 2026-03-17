@@ -136,6 +136,52 @@ export class OpportunitiesRepository {
   }
 
   /**
+   * Find ALL active opportunities (status=pending, event in the future).
+   * Used during new-user onboarding to populate their user_opportunities.
+   */
+  async findActiveWithEventData(): Promise<any[]> {
+    this.logger.logDB('OpportunitiesRepository', 'SELECT ACTIVE WITH EVENT DATA', this.tableName);
+
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const { data, error } = await this.supabaseService
+      .getServiceRoleClient()
+      .from(this.tableName)
+      .select(
+        `
+        id,
+        event_id,
+        team,
+        handicap,
+        odd,
+        bookmaker,
+        risk_score,
+        status,
+        created_at,
+        events!inner(
+          commence_time,
+          home_team,
+          away_team,
+          league
+        )
+      `,
+      )
+      .eq('status', OpportunityStatus.PENDING)
+      .gte('events.commence_time', todayStr)
+      .order('risk_score', { ascending: true });
+
+    if (error) {
+      this.logger.logError('OpportunitiesRepository', 'Error finding active opportunities', error);
+      throw error;
+    }
+
+    return (data || []).filter((opp: any) => {
+      const eventDateStr = new Date(opp.events.commence_time).toISOString().split('T')[0];
+      return eventDateStr >= todayStr;
+    });
+  }
+
+  /**
    * Update opportunity status
    */
   async updateStatus(id: string, status: OpportunityStatus): Promise<void> {

@@ -12,12 +12,13 @@ import {
 import { OpportunitiesRepository } from '../database/repositories/opportunities.repository';
 import { BetsRepository } from '../database/repositories/bets.repository';
 import { EventsRepository } from '../database/repositories/events.repository';
+import { UserOpportunitiesRepository } from '../database/repositories/user-opportunities.repository';
 import { BankrollService } from '../bankroll/bankroll.service';
 import { PairBuilderService } from '../bets/pair-builder.service';
 import { TasksService } from '../scheduler/tasks.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { OpportunityStatus } from '../../common/constants/strategy.constants';
+
 import { Logger } from '../../utils/logger';
 
 @Controller('api')
@@ -28,6 +29,7 @@ export class ApiController {
     private opportunitiesRepository: OpportunitiesRepository,
     private betsRepository: BetsRepository,
     private eventsRepository: EventsRepository,
+    private userOpportunitiesRepository: UserOpportunitiesRepository,
     private bankrollService: BankrollService,
     private pairBuilderService: PairBuilderService,
     private tasksService: TasksService,
@@ -62,11 +64,11 @@ export class ApiController {
       // Delete bet
       await this.betsRepository.delete(user.id, id);
 
-      // Restore opportunities to PENDING
-      await this.opportunitiesRepository.updateManyStatus(
-        [bet.game1_id, bet.game2_id],
-        OpportunityStatus.PENDING,
-      );
+      // Restore opportunities to PENDING in this user's user_opportunities only
+      await this.userOpportunitiesRepository.restoreToPendingForUser(user.id, [
+        bet.game1_id,
+        bet.game2_id,
+      ]);
 
       return {
         success: true,
@@ -83,58 +85,52 @@ export class ApiController {
   }
 
   /**
-   * 📋 Listar todas as oportunidades (apostas individuais)
+   * 📋 Listar oportunidades disponíveis para o usuário autenticado
    * GET /api/opportunities
+   * Retorna apenas oportunidades com status 'pending' na tabela user_opportunities do usuário,
+   * excluindo automaticamente qualquer jogo que já foi usado em uma aposta desse usuário.
    */
   @Get('opportunities')
-  async getOpportunities(@Query('status') status?: string) {
-    this.logger.log('Getting opportunities list', 'ApiController');
+  @UseGuards(JwtAuthGuard)
+  async getOpportunities(@CurrentUser() user: any) {
+    this.logger.log(`Getting opportunities for user ${user.id}`, 'ApiController');
 
-    // Buscar oportunidades
-    const opportunities = status
-      ? await this.opportunitiesRepository.findByStatus(status as OpportunityStatus)
-      : await this.opportunitiesRepository.findByStatus(OpportunityStatus.PENDING);
-
-    // Enriquecer com dados dos eventos
-    const enriched = await Promise.all(
-      opportunities.map(async (opp) => {
-        const event = await this.eventsRepository.findByEventId(opp.event_id);
-
-        return {
-          id: opp.id,
-          status: opp.status,
-
-          // Informações do jogo
-          match: {
-            eventId: opp.event_id,
-            league: event?.league || 'Brazil Série A',
-            homeTeam: event?.home_team || '',
-            awayTeam: event?.away_team || '',
-            kickoff: event?.commence_time,
-            kickoffFormatted: this.formatDate(event?.commence_time),
-          },
-
-          // Informações da aposta
-          bet: {
-            team: opp.team,
-            handicap: opp.handicap,
-            odd: opp.odd,
-            bookmaker: opp.bookmaker,
-          },
-
-          // Análise de risco
-          risk: {
-            score: opp.risk_score,
-            category: this.getRiskCategory(opp.risk_score),
-            stars: this.getRiskStars(opp.risk_score),
-          },
-
-          // Metadados
-          createdAt: opp.created_at,
-          createdAtFormatted: this.formatDate(opp.created_at),
-        };
-      }),
+    // Buscar apenas oportunidades pendentes DESTE usuário (joined com events)
+    // Oportunidades 'paired' ou 'discarded' já não aparecem aqui
+    const userOpps = await this.userOpportunitiesRepository.findPendingForUserWithEventData(
+      user.id,
     );
+
+    const now = new Date();
+
+    // Mapear para o formato de resposta (events já vêm aninhados)
+    const enriched = userOpps
+      .filter((opp: any) => opp.events?.commence_time && new Date(opp.events.commence_time) > now)
+      .map((opp: any) => ({
+        id: opp.id,
+        status: 'pending',
+        match: {
+          eventId: opp.event_id,
+          league: opp.events?.league || 'Brazil Série A',
+          homeTeam: opp.events?.home_team || '',
+          awayTeam: opp.events?.away_team || '',
+          kickoff: opp.events?.commence_time,
+          kickoffFormatted: this.formatDate(opp.events?.commence_time),
+        },
+        bet: {
+          team: opp.team,
+          handicap: opp.handicap,
+          odd: opp.odd,
+          bookmaker: opp.bookmaker,
+        },
+        risk: {
+          score: opp.risk_score,
+          category: this.getRiskCategory(opp.risk_score),
+          stars: this.getRiskStars(opp.risk_score),
+        },
+        createdAt: opp.created_at,
+        createdAtFormatted: this.formatDate(opp.created_at),
+      }));
 
     // Deduplicate by (event_id, team, handicap) — keep the best odd per combination
     const bestByKey = new Map<string, (typeof enriched)[number]>();
@@ -306,10 +302,11 @@ export class ApiController {
    * GET /api/top-opportunities
    */
   @Get('top-opportunities')
-  async getTopOpportunities(@Query('limit') limit?: string) {
+  @UseGuards(JwtAuthGuard)
+  async getTopOpportunities(@CurrentUser() user: any, @Query('limit') limit?: string) {
     const maxLimit = limit ? parseInt(limit, 10) : 10;
 
-    const opportunities = await this.getOpportunities();
+    const opportunities = await this.getOpportunities(user);
     const top = opportunities.opportunities.slice(0, maxLimit);
 
     return {
@@ -327,7 +324,10 @@ export class ApiController {
   @Get('stats')
   @UseGuards(JwtAuthGuard)
   async getStats(@CurrentUser() user: any) {
-    const [opportunities, bets] = await Promise.all([this.getOpportunities(), this.getBets(user)]);
+    const [opportunities, bets] = await Promise.all([
+      this.getOpportunities(user),
+      this.getBets(user),
+    ]);
 
     const pendingOpps = opportunities.opportunities.filter((o) => o.status === 'pending').length;
 
@@ -700,10 +700,11 @@ export class ApiController {
         suggested_stake: suggestedStake,
       });
 
-      // Mark both opportunities as PAIRED
-      await this.opportunitiesRepository.updateManyStatus(
+      // Mark both opportunities as paired in this user's user_opportunities only
+      await this.userOpportunitiesRepository.updateManyStatusForUser(
+        user.id,
         [opp1.id!, opp2.id!],
-        OpportunityStatus.PAIRED,
+        'paired',
       );
 
       return {
@@ -737,8 +738,8 @@ export class ApiController {
     try {
       this.logger.log(`Creating bet pairs for user ${user.id}`, 'ApiController');
 
-      // Build pairs from available opportunities
-      const pairs = await this.pairBuilderService.buildPairs();
+      // Build pairs from this user's available opportunities
+      const pairs = await this.pairBuilderService.buildPairsForUser(user.id);
 
       if (pairs.length === 0) {
         return {
