@@ -333,11 +333,7 @@ export class BetsRepository {
       .eq('result', BetResult.PENDING);
 
     if (error) {
-      this.logger.logError(
-        'BetsRepository',
-        'Error finding distinct pending pairs (admin)',
-        error,
-      );
+      this.logger.logError('BetsRepository', 'Error finding distinct pending pairs (admin)', error);
       throw error;
     }
 
