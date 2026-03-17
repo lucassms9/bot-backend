@@ -14,6 +14,7 @@ import { BetsRepository } from '../database/repositories/bets.repository';
 import { EventsRepository } from '../database/repositories/events.repository';
 import { BankrollService } from '../bankroll/bankroll.service';
 import { PairBuilderService } from '../bets/pair-builder.service';
+import { TasksService } from '../scheduler/tasks.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { OpportunityStatus } from '../../common/constants/strategy.constants';
@@ -29,6 +30,7 @@ export class ApiController {
     private eventsRepository: EventsRepository,
     private bankrollService: BankrollService,
     private pairBuilderService: PairBuilderService,
+    private tasksService: TasksService,
   ) {}
 
   /**
@@ -421,15 +423,35 @@ export class ApiController {
     @Body() body: { initial_balance: number; currency?: string; stake_percentage?: number },
   ) {
     try {
+      // Detect if this is onwards onboarding (first bankroll creation)
+      let isNewUser = false;
+      try {
+        await this.bankrollService.getCurrent(user.id);
+      } catch {
+        isNewUser = true;
+      }
+
       const bankroll = await this.bankrollService.createOrUpdate(user.id, {
         initial_balance: body.initial_balance,
         currency: body.currency || 'BRL',
         stake_percentage: body.stake_percentage || 10,
       });
 
+      let betsGenerated = 0;
+      if (isNewUser) {
+        this.logger.logProcessing(
+          'ApiController',
+          `New user onboarding complete — generating bets for user ${user.id}`,
+        );
+        const result = await this.tasksService.generateBetsForNewUser(user.id);
+        betsGenerated = result.betsCreated;
+      }
+
       return {
         success: true,
-        message: 'Bankroll created/updated successfully',
+        message: isNewUser
+          ? `Onboarding complete! Bankroll configured and ${betsGenerated} bet(s) generated.`
+          : 'Bankroll updated successfully',
         bankroll: {
           id: bankroll.id,
           currentBalance: bankroll.current_balance,
@@ -437,6 +459,7 @@ export class ApiController {
           currency: bankroll.currency,
           stakePercentage: bankroll.stake_percentage,
         },
+        ...(isNewUser && { betsGenerated }),
         timestamp: new Date().toISOString(),
       };
     } catch (error) {

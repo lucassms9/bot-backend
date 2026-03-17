@@ -9,5 +9,6 @@ import { BetsModule } from '../bets/bets.module';
   imports: [OddsModule, RiskModule, BetsModule],
   controllers: [SchedulerController],
   providers: [TasksService],
+  exports: [TasksService],
 })
 export class SchedulerModule {}

@@ -317,6 +317,46 @@ export class BetsRepository {
   }
 
   /**
+   * Find distinct PENDING bet pairs across all users (admin, for new user onboarding).
+   * Returns one entry per unique (game1_id, game2_id) pair so a new user receives
+   * exactly the same active pairs that existing users already have.
+   */
+  async findDistinctPendingPairsAsAdmin(): Promise<
+    Pick<Bet, 'game1_id' | 'game2_id' | 'odd_total' | 'risk_total'>[]
+  > {
+    this.logger.logDB('BetsRepository', 'SELECT DISTINCT PENDING PAIRS (ADMIN)', this.tableName);
+
+    const { data, error } = await this.supabaseService
+      .getServiceRoleClient()
+      .from(this.tableName)
+      .select('game1_id, game2_id, odd_total, risk_total')
+      .eq('result', BetResult.PENDING);
+
+    if (error) {
+      this.logger.logError(
+        'BetsRepository',
+        'Error finding distinct pending pairs (admin)',
+        error,
+      );
+      throw error;
+    }
+
+    // Deduplicate by game pair (order-insensitive)
+    const seen = new Set<string>();
+    const unique: Pick<Bet, 'game1_id' | 'game2_id' | 'odd_total' | 'risk_total'>[] = [];
+
+    for (const bet of data || []) {
+      const key = [bet.game1_id, bet.game2_id].sort().join('|');
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(bet);
+      }
+    }
+
+    return unique;
+  }
+
+  /**
    * Find all PENDING bets across all users (admin, for cron expiry check)
    */
   async findAllPendingAsAdmin(): Promise<Pick<Bet, 'id' | 'user_id' | 'game1_id' | 'game2_id'>[]> {

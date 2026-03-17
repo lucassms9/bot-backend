@@ -350,6 +350,56 @@ export class TasksService {
   }
 
   /**
+   * Generate bets for a newly onboarded user from the current active PENDING bet pairs.
+   * Called right after the user completes onboarding (bankroll setup).
+   * Only uses pairs that are still PENDING (valid, not yet settled) so stale pairs
+   * are never assigned to the new user.
+   */
+  async generateBetsForNewUser(userId: string): Promise<{ betsCreated: number }> {
+    this.logger.log(`Generating bets for new user ${userId}`, 'TasksService');
+
+    // Fetch all unique PENDING pairs across existing users
+    const existingPairs = await this.betsRepository.findDistinctPendingPairsAsAdmin();
+
+    if (existingPairs.length === 0) {
+      this.logger.logWarning(
+        'TasksService',
+        `No active PENDING pairs found to assign to new user ${userId}`,
+      );
+      return { betsCreated: 0 };
+    }
+
+    // Get the new user's suggested stake (based on their bankroll)
+    const suggestedStake = await this.bankrollRepository.getSuggestedStakeAsAdmin(userId);
+
+    const pairsWithStake: import('../database/interfaces/bet.interface').CreateBetDto[] =
+      existingPairs.map((pair) => ({
+        game1_id: pair.game1_id,
+        game2_id: pair.game2_id,
+        odd_total: pair.odd_total,
+        risk_total: pair.risk_total,
+        suggested_stake: suggestedStake,
+      }));
+
+    // Safety: skip any pair that already exists for this user
+    const uniquePairs = await this.betsRepository.filterDuplicates(userId, pairsWithStake);
+
+    if (uniquePairs.length === 0) {
+      this.logger.logWarning('TasksService', `All pairs already exist for user ${userId}`);
+      return { betsCreated: 0 };
+    }
+
+    const created = await this.betsRepository.createManyAsAdmin(userId, uniquePairs);
+
+    this.logger.logSuccess(
+      'TasksService',
+      `Created ${created.length} bets for new user ${userId} (stake: R$ ${suggestedStake.toFixed(2)})`,
+    );
+
+    return { betsCreated: created.length };
+  }
+
+  /**
    * Health check - runs every hour
    */
   @Cron(CronExpression.EVERY_HOUR, {
