@@ -24,7 +24,7 @@ export class BetsController {
     this.logger.log(`Manual pair building triggered by user ${user.id}`, 'BetsController');
 
     try {
-      const pairs = await this.pairBuilderService.buildPairs();
+      const pairs = await this.pairBuilderService.buildPairsForUser(user.id);
       const createdBets = await this.betsService.createMany(user.id, pairs);
 
       return {
