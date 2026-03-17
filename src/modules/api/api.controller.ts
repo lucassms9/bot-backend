@@ -330,6 +330,7 @@ export class ApiController {
     const pendingOpps = opportunities.opportunities.filter((o) => o.status === 'pending').length;
 
     const pendingBets = bets.bets.filter((b) => b?.status === 'pending').length;
+    const inProgressBets = bets.bets.filter((b) => b?.status === 'in_progress').length;
     const wonBets = bets.bets.filter((b) => b?.status === 'won').length;
     const lostBets = bets.bets.filter((b) => b?.status === 'lost').length;
 
@@ -358,6 +359,7 @@ export class ApiController {
         bets: {
           total: bets.count,
           pending: pendingBets,
+          inProgress: inProgressBets,
           won: wonBets,
           lost: lostBets,
           winRate:
